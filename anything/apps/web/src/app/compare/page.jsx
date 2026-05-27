@@ -3,11 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { GitCompareArrows, ArrowUpRight, Star } from "lucide-react";
 import AppShell from "../../components/AppShell";
 import { OutlinePill } from "../../components/Pills";
+import { fetchAuthStatus } from "../../utils/auth-client";
 import { useLocale, formatDate } from "../../utils/i18n";
 
 export default function ComparePage() {
   const { t, locale } = useLocale();
   const [selected, setSelected] = useState([null, null]);
+  const authQuery = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: fetchAuthStatus,
+    staleTime: 30000,
+  });
+  const authenticated = Boolean(authQuery.data?.authenticated);
 
   const { data: reports = [] } = useQuery({
     queryKey: ["reports", "all-compare"],
@@ -17,10 +24,11 @@ export default function ComparePage() {
       const j = await r.json();
       return j.reports || [];
     },
+    enabled: authenticated,
   });
 
-  const a = useFullReport(selected[0]);
-  const b = useFullReport(selected[1]);
+  const a = useFullReport(selected[0], authenticated);
+  const b = useFullReport(selected[1], authenticated);
 
   const reposA = extractRepos(a.data);
   const reposB = extractRepos(b.data);
@@ -218,7 +226,7 @@ function ColumnList({ title, report, repos, t, locale }) {
   );
 }
 
-function useFullReport(id) {
+function useFullReport(id, enabled) {
   return useQuery({
     queryKey: ["report", id],
     queryFn: async () => {
@@ -227,7 +235,7 @@ function useFullReport(id) {
       const j = await r.json();
       return j.report;
     },
-    enabled: !!id,
+    enabled: !!id && enabled,
   });
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Github,
   LayoutGrid,
@@ -7,9 +8,14 @@ import {
   Languages,
   Sun,
   Moon,
+  Settings,
+  LogOut,
+  UserRound,
 } from "lucide-react";
 import { useLocale } from "../utils/i18n";
 import { useTheme } from "../hooks/useTheme";
+import AuthScreen from "./AuthScreen";
+import { fetchAuthStatus } from "../utils/auth-client";
 
 function LangSwitcher() {
   const { locale, setLocale, t } = useLocale();
@@ -49,10 +55,42 @@ export default function AppShell({ children }) {
   const { t } = useLocale();
   const { dark, toggle } = useTheme();
   const [path, setPath] = useState("/");
+  const queryClient = useQueryClient();
+
+  const authQuery = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: fetchAuthStatus,
+    staleTime: 30000,
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      await fetch("/api/auth/logout", { method: "POST" });
+    },
+    onSuccess: () => {
+      queryClient.clear();
+      window.location.href = "/";
+    },
+  });
 
   useEffect(() => {
     setPath(window.location.pathname);
   }, []);
+
+  if (authQuery.isLoading) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-500 dark:text-gray-400 flex items-center justify-center text-sm">
+        {t("common.loading")}
+      </div>
+    );
+  }
+
+  const auth = authQuery.data;
+  if (!auth?.authenticated) {
+    return <AuthScreen authState={auth} />;
+  }
+
+  const isAdmin = auth.user?.role === "admin";
 
   const NAV = [
     {
@@ -73,7 +111,19 @@ export default function AppShell({ children }) {
       icon: Clock,
       match: (p) => p.startsWith("/schedule"),
     },
+    ...(isAdmin
+      ? [
+          {
+            to: "/settings",
+            label: t("nav.settings"),
+            icon: Settings,
+            match: (p) => p.startsWith("/settings"),
+          },
+        ]
+      : []),
   ];
+
+  const accessDenied = path.startsWith("/settings") && !isAdmin;
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 font-inter text-gray-900 dark:text-gray-100 transition-colors">
@@ -96,19 +146,25 @@ export default function AppShell({ children }) {
                   <a
                     key={item.to}
                     href={item.to}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
+                    aria-label={item.label}
+                    title={item.label}
+                    className={`inline-flex items-center gap-0 md:gap-1.5 px-2.5 md:px-3 py-1.5 rounded-full text-sm transition-colors ${
                       active
                         ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
                         : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 font-normal"
                     }`}
                   >
                     <Icon size={14} />
-                    {item.label}
+                    <span className="hidden md:inline">{item.label}</span>
                   </a>
                 );
               })}
             </nav>
             <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-gray-200 dark:border-gray-700">
+              <div className="hidden lg:flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 max-w-[180px]">
+                <UserRound size={14} />
+                <span className="truncate">{auth.user?.email}</span>
+              </div>
               <button
                 type="button"
                 onClick={toggle}
@@ -119,6 +175,15 @@ export default function AppShell({ children }) {
               </button>
               <Languages size={14} className="text-gray-400 dark:text-gray-500" />
               <LangSwitcher />
+              <button
+                type="button"
+                onClick={() => logoutMutation.mutate()}
+                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                aria-label={t("auth.logout")}
+                title={t("auth.logout")}
+              >
+                <LogOut size={14} />
+              </button>
             </div>
           </div>
         </div>
@@ -126,7 +191,15 @@ export default function AppShell({ children }) {
           <LangSwitcher />
         </div>
       </header>
-      <main className="max-w-[1200px] mx-auto px-6 py-8 transition-colors">{children}</main>
+      <main className="max-w-[1200px] mx-auto px-6 py-8 transition-colors">
+        {accessDenied ? (
+          <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+            {t("auth.forbidden")}
+          </div>
+        ) : (
+          children
+        )}
+      </main>
     </div>
   );
 }

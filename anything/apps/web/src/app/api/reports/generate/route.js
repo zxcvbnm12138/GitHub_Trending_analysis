@@ -4,13 +4,15 @@ import {
   updateReportCompleted,
   updateReportFailed,
 } from "../store.js";
+import { getRuntimeConfig } from "../../utils/app-config.js";
+import { requireUser } from "../../utils/user-auth.js";
 
-async function completeReport({ reportId, difyUrl, difyKey, dateRange }) {
+async function completeReport({ reportId, userId, difyUrl, difyKey, dateRange }) {
   try {
     const { data, summary } = await runDifyWorkflow({
       difyUrl,
       difyKey,
-      user: `trending-dashboard-report-${reportId}`,
+      user: `trending-dashboard-user-${userId}-report-${reportId}`,
       dateRange,
     });
 
@@ -22,6 +24,9 @@ async function completeReport({ reportId, difyUrl, difyKey, dateRange }) {
 }
 
 export async function POST(request) {
+  const guard = await requireUser(request);
+  if (!guard.ok) return guard.response;
+
   let body = {};
   try {
     body = await request.json();
@@ -32,11 +37,12 @@ export async function POST(request) {
   const language = body?.language || null;
   const languageFilter = language && language !== "all" ? language : null;
 
-  const pending = await createPendingReport(languageFilter);
+  const pending = await createPendingReport(guard.user.id, languageFilter);
   const reportId = pending.id;
 
-  const difyUrl = process.env.DIFY_API_URL;
-  const difyKey = process.env.DIFY_API_KEY;
+  const runtime = await getRuntimeConfig();
+  const difyUrl = runtime.dify.baseUrl;
+  const difyKey = runtime.dify.appKey;
 
   if (!difyUrl || !difyKey) {
     await updateReportFailed(
@@ -56,6 +62,7 @@ export async function POST(request) {
 
   completeReport({
     reportId,
+    userId: guard.user.id,
     difyUrl,
     difyKey,
     dateRange: body?.date_range || "当日",

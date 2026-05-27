@@ -1,4 +1,5 @@
 import { getReport } from "../../store.js";
+import { requireUser } from "../../../utils/user-auth.js";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -75,10 +76,13 @@ function mdToHtml(md) {
 }
 
 export async function GET(request, { params }) {
+  const guard = await requireUser(request);
+  if (!guard.ok) return guard.response;
+
   const id = parseInt(params.id, 10);
   if (!id) return new Response("Invalid id", { status: 400 });
 
-  const row = await getReport(id);
+  const row = await getReport(guard.user.id, id);
   if (!row) return new Response("Not found", { status: 404 });
 
   const data = row.raw_data || {};

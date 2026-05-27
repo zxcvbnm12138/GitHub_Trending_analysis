@@ -1,1 +1,4 @@
 .playwright-mcp/
+anything/apps/web/.data/
+anything/apps/web/.local-dev/
+.local/

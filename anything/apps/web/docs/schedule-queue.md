@@ -53,6 +53,28 @@ DIFY_API_URL=...
 DIFY_API_KEY=...
 ```
 
+`DIFY_API_URL`, `DIFY_API_KEY`, and `DATABASE_URL` can also be set from the
+admin Settings page. Values are stored in `.data/app-config.json`, which must
+remain server-private and uncommitted. Environment variables take precedence
+over saved Settings values.
+
+Dify changes apply to new generation requests immediately. Database URL changes
+are read when the web service and schedule worker start, so restart both
+processes after changing the database configuration.
+
+The Settings page also includes self-check tools:
+
+- Run all checks: verifies database configuration and runs the Dify workflow
+  test when Dify is configured.
+- Test Dify: runs the workflow once without saving a report.
+- Test database: checks database connectivity, required tables, columns, and
+  indexes.
+- Initialize database: creates missing tables and adds missing columns/indexes;
+  it does not delete or rewrite existing data.
+- Migrate local data: manually imports reports, schedule, and queued jobs from
+  `.data/trending-dashboard.json` into the configured database, skipping rows
+  with IDs that already exist.
+
 Optional:
 
 ```env

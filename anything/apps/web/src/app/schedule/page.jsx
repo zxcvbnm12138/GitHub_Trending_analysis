@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, Clock, Info } from "lucide-react";
 import AppShell from "../../components/AppShell";
 import { PrimaryButton } from "../../components/Pills";
+import { fetchAuthStatus } from "../../utils/auth-client";
 import { useLocale, formatDateTime } from "../../utils/i18n";
 
 export default function SchedulePage() {
@@ -11,6 +12,12 @@ export default function SchedulePage() {
   const [enabled, setEnabled] = useState(false);
   const [cronTime, setCronTime] = useState("09:00");
   const [saved, setSaved] = useState(false);
+  const authQuery = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: fetchAuthStatus,
+    staleTime: 30000,
+  });
+  const authenticated = Boolean(authQuery.data?.authenticated);
 
   const { data } = useQuery({
     queryKey: ["schedule"],
@@ -19,6 +26,7 @@ export default function SchedulePage() {
       if (!r.ok) throw new Error(`schedule ${r.status}`);
       return r.json();
     },
+    enabled: authenticated,
   });
 
   useEffect(() => {

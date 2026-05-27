@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import AppShell from "../components/AppShell";
+import { fetchAuthStatus } from "../utils/auth-client";
 import {
   OutlinePill,
   StatusPill,
@@ -41,6 +42,12 @@ export default function Dashboard() {
   const [dateRange, setDateRange] = useState("当日");
   const [error, setError] = useState(null);
   const queryClient = useQueryClient();
+  const authQuery = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: fetchAuthStatus,
+    staleTime: 30000,
+  });
+  const authenticated = Boolean(authQuery.data?.authenticated);
 
   const statsQuery = useQuery({
     queryKey: ["stats"],
@@ -49,6 +56,7 @@ export default function Dashboard() {
       if (!r.ok) throw new Error(`stats ${r.status}`);
       return r.json();
     },
+    enabled: authenticated,
   });
 
   const reportsQuery = useQuery({
@@ -59,6 +67,7 @@ export default function Dashboard() {
       const j = await r.json();
       return j.reports || [];
     },
+    enabled: authenticated,
     refetchInterval: (query) => {
       const rows = query.state.data || [];
       return rows.some((report) => report.status === "pending") ? 5000 : false;

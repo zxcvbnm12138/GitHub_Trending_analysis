@@ -19,12 +19,19 @@ import {
   PrimaryButton,
   SecondaryButton,
 } from "../../../components/Pills";
+import { fetchAuthStatus } from "../../../utils/auth-client";
 import { useLocale, formatDate, formatDateTime } from "../../../utils/i18n";
 
 export default function ReportDetailPage(props) {
   const { t, locale } = useLocale();
   const id = props?.params?.id;
   const [tab, setTab] = useState("analysis");
+  const authQuery = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: fetchAuthStatus,
+    staleTime: 30000,
+  });
+  const authenticated = Boolean(authQuery.data?.authenticated);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["report", id],
@@ -34,7 +41,7 @@ export default function ReportDetailPage(props) {
       const j = await r.json();
       return j.report;
     },
-    enabled: !!id,
+    enabled: !!id && authenticated,
     refetchInterval: (query) =>
       query.state.data?.status === "pending" ? 5000 : false,
   });

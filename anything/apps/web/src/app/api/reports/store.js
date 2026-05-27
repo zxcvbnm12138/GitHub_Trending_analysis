@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import sql from "../utils/sql.js";
+import sql, { hasDatabase } from "../utils/sql.js";
 
-const HAS_DATABASE = Boolean(process.env.DATABASE_URL);
+const HAS_DATABASE = hasDatabase;
 const STORE_PATH = join(process.cwd(), ".data", "trending-dashboard.json");
 
 function today() {
@@ -22,6 +22,7 @@ function defaultStore() {
 function normalizeLocalReport(report) {
   return {
     id: report.id,
+    user_id: report.user_id ?? null,
     created_at: report.created_at,
     report_date: report.report_date || report.created_at?.slice(0, 10) || today(),
     language_filter: report.language_filter ?? null,
@@ -30,6 +31,10 @@ function normalizeLocalReport(report) {
     error_message: report.error_message || null,
     raw_data: report.raw_data || {},
   };
+}
+
+function normalizeUserId(userId) {
+  return userId == null ? null : String(userId);
 }
 
 async function readStore() {
@@ -54,11 +59,12 @@ async function mutateStore(mutator) {
   return result;
 }
 
-export async function createPendingReport(languageFilter) {
+export async function createPendingReport(userId, languageFilter) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     const [row] = await sql`
-      INSERT INTO trending_reports (language_filter, status)
-      VALUES (${languageFilter}, 'pending')
+      INSERT INTO trending_reports (user_id, language_filter, status)
+      VALUES (${ownerId}, ${languageFilter}, 'pending')
       RETURNING id
     `;
     return row;
@@ -69,6 +75,7 @@ export async function createPendingReport(languageFilter) {
     const now = new Date().toISOString();
     const report = normalizeLocalReport({
       id,
+      user_id: ownerId,
       created_at: now,
       report_date: today(),
       language_filter: languageFilter,
@@ -80,11 +87,12 @@ export async function createPendingReport(languageFilter) {
   });
 }
 
-export async function createCompletedReport(languageFilter, summary, rawData) {
+export async function createCompletedReport(userId, languageFilter, summary, rawData) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     const [row] = await sql`
-      INSERT INTO trending_reports (language_filter, status, summary, raw_data)
-      VALUES (${languageFilter}, 'completed', ${summary}, ${JSON.stringify(rawData)}::jsonb)
+      INSERT INTO trending_reports (user_id, language_filter, status, summary, raw_data)
+      VALUES (${ownerId}, ${languageFilter}, 'completed', ${summary}, ${JSON.stringify(rawData)}::jsonb)
       RETURNING id
     `;
     return row;
@@ -95,6 +103,7 @@ export async function createCompletedReport(languageFilter, summary, rawData) {
     const now = new Date().toISOString();
     const report = normalizeLocalReport({
       id,
+      user_id: ownerId,
       created_at: now,
       report_date: today(),
       language_filter: languageFilter,
@@ -107,12 +116,14 @@ export async function createCompletedReport(languageFilter, summary, rawData) {
   });
 }
 
-export async function findReportForDate(languageFilter, reportDate = today()) {
+export async function findReportForDate(userId, languageFilter, reportDate = today()) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     const [row] = await sql`
       SELECT id, status, report_date, language_filter
       FROM trending_reports
-      WHERE report_date = ${reportDate}
+      WHERE user_id = ${ownerId}
+        AND report_date = ${reportDate}
         AND language_filter IS NOT DISTINCT FROM ${languageFilter}
         AND status IN ('pending', 'completed')
       ORDER BY created_at DESC
@@ -128,6 +139,7 @@ export async function findReportForDate(languageFilter, reportDate = today()) {
       .filter(
         (report) =>
           report.report_date === reportDate &&
+          String(report.user_id ?? "") === String(ownerId ?? "") &&
           report.language_filter === languageFilter &&
           ["pending", "completed"].includes(report.status),
       )
@@ -177,14 +189,16 @@ export async function updateReportFailed(id, errorMessage) {
   });
 }
 
-export async function listReports({ language, limit = 100 } = {}) {
+export async function listReports({ userId, language, limit = 100 } = {}) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     if (language && language !== "all") {
       return sql`
         SELECT id, created_at, report_date, language_filter, status, summary, error_message,
                raw_data->'top_repos' AS top_repos
         FROM trending_reports
-        WHERE language_filter = ${language}
+        WHERE user_id = ${ownerId}
+          AND language_filter = ${language}
         ORDER BY created_at DESC
         LIMIT ${limit}
       `;
@@ -194,6 +208,7 @@ export async function listReports({ language, limit = 100 } = {}) {
       SELECT id, created_at, report_date, language_filter, status, summary, error_message,
              raw_data->'top_repos' AS top_repos
       FROM trending_reports
+      WHERE user_id = ${ownerId}
       ORDER BY created_at DESC
       LIMIT ${limit}
     `;
@@ -202,7 +217,11 @@ export async function listReports({ language, limit = 100 } = {}) {
   const store = await readStore();
   return store.reports
     .map(normalizeLocalReport)
-    .filter((report) => !language || language === "all" || report.language_filter === language)
+    .filter(
+      (report) =>
+        String(report.user_id ?? "") === String(ownerId ?? "") &&
+        (!language || language === "all" || report.language_filter === language),
+    )
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, limit)
     .map((report) => ({
@@ -217,29 +236,49 @@ export async function listReports({ language, limit = 100 } = {}) {
     }));
 }
 
-export async function getReport(id) {
+export async function getReport(userId, id) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
-    const [row] = await sql`SELECT * FROM trending_reports WHERE id = ${id}`;
+    const [row] = await sql`
+      SELECT *
+      FROM trending_reports
+      WHERE id = ${id}
+        AND user_id = ${ownerId}
+    `;
     return row || null;
   }
 
   const store = await readStore();
-  const report = store.reports.find((item) => item.id === id);
+  const report = store.reports.find(
+    (item) =>
+      String(item.id) === String(id) &&
+      String(item.user_id ?? "") === String(ownerId ?? ""),
+  );
   return report ? normalizeLocalReport(report) : null;
 }
 
-export async function deleteReport(id) {
+export async function deleteReport(userId, id) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
-    await sql`DELETE FROM trending_reports WHERE id = ${id}`;
+    await sql`
+      DELETE FROM trending_reports
+      WHERE id = ${id}
+        AND user_id = ${ownerId}
+    `;
     return;
   }
 
   await mutateStore((store) => {
-    store.reports = store.reports.filter((item) => item.id !== id);
+    store.reports = store.reports.filter(
+      (item) =>
+        String(item.id) !== String(id) ||
+        String(item.user_id ?? "") !== String(ownerId ?? ""),
+    );
   });
 }
 
-export async function getStats() {
+export async function getStats(userId) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     const [totals] = await sql`
       SELECT
@@ -247,17 +286,19 @@ export async function getStats() {
         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS this_week,
         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '14 days' AND created_at < NOW() - INTERVAL '7 days')::int AS last_week
       FROM trending_reports
+      WHERE user_id = ${ownerId}
     `;
 
     const langRows = await sql`
       SELECT COALESCE(language_filter, 'all') AS language, COUNT(*)::int AS count
       FROM trending_reports
+      WHERE user_id = ${ownerId}
       GROUP BY COALESCE(language_filter, 'all')
       ORDER BY count DESC
       LIMIT 1
     `;
 
-    const schedule = await getSchedule();
+    const schedule = await getSchedule(ownerId);
     return buildStats(totals, langRows[0]?.language || "—", schedule);
   }
 
@@ -265,22 +306,25 @@ export async function getStats() {
   const now = Date.now();
   const sevenDays = 7 * 24 * 60 * 60 * 1000;
   const reports = store.reports.map(normalizeLocalReport);
-  const thisWeek = reports.filter((report) => now - new Date(report.created_at).getTime() <= sevenDays).length;
-  const lastWeek = reports.filter((report) => {
+  const userReports = reports.filter(
+    (report) => String(report.user_id ?? "") === String(ownerId ?? ""),
+  );
+  const thisWeek = userReports.filter((report) => now - new Date(report.created_at).getTime() <= sevenDays).length;
+  const lastWeek = userReports.filter((report) => {
     const age = now - new Date(report.created_at).getTime();
     return age > sevenDays && age <= sevenDays * 2;
   }).length;
   const counts = new Map();
-  for (const report of reports) {
+  for (const report of userReports) {
     const language = report.language_filter || "all";
     counts.set(language, (counts.get(language) || 0) + 1);
   }
   const topLanguage = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
 
   return buildStats(
-    { total: reports.length, this_week: thisWeek, last_week: lastWeek },
+    { total: userReports.length, this_week: thisWeek, last_week: lastWeek },
     topLanguage,
-    await ensureSchedule(),
+    await ensureSchedule(ownerId),
   );
 }
 
@@ -312,12 +356,13 @@ function buildStats(totals, topLanguage, schedule) {
   };
 }
 
-function defaultSchedule() {
+function defaultSchedule(userId) {
   const next = new Date();
   next.setDate(next.getDate() + 1);
   next.setHours(9, 0, 0, 0);
   return {
     id: 1,
+    user_id: normalizeUserId(userId),
     enabled: false,
     cron_time: "09:00",
     languages: ["all"],
@@ -326,44 +371,84 @@ function defaultSchedule() {
   };
 }
 
-export async function ensureSchedule() {
+export async function ensureSchedule(userId) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
-    const [row] = await sql`SELECT * FROM report_schedules ORDER BY id ASC LIMIT 1`;
+    const [row] = await sql`
+      SELECT *
+      FROM report_schedules
+      WHERE user_id = ${ownerId}
+      ORDER BY id ASC
+      LIMIT 1
+    `;
     if (row) return row;
     const [created] = await sql`
-      INSERT INTO report_schedules (enabled, cron_time, languages, next_run_at)
-      VALUES (false, '09:00', ARRAY['all']::text[], NOW() + INTERVAL '1 day')
+      INSERT INTO report_schedules (user_id, enabled, cron_time, languages, next_run_at)
+      VALUES (${ownerId}, false, '09:00', ARRAY['all']::text[], NOW() + INTERVAL '1 day')
       RETURNING *
     `;
     return created;
   }
 
   return mutateStore((store) => {
-    if (!store.schedule) store.schedule = defaultSchedule();
+    if (!store.schedule) store.schedule = defaultSchedule(ownerId);
     return store.schedule;
   });
 }
 
-export async function getSchedule() {
+export async function getSchedule(userId) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
-    const [row] = await sql`SELECT * FROM report_schedules ORDER BY id ASC LIMIT 1`;
+    const [row] = await sql`
+      SELECT *
+      FROM report_schedules
+      WHERE user_id = ${ownerId}
+      ORDER BY id ASC
+      LIMIT 1
+    `;
     return row || null;
   }
-  return ensureSchedule();
+  return ensureSchedule(ownerId);
 }
 
-export async function getScheduleById(id) {
+export async function getScheduleById(id, userId = null) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
+    if (ownerId) {
+      const [row] = await sql`
+        SELECT *
+        FROM report_schedules
+        WHERE id = ${id}
+          AND user_id = ${ownerId}
+      `;
+      return row || null;
+    }
     const [row] = await sql`SELECT * FROM report_schedules WHERE id = ${id}`;
     return row || null;
   }
 
   const store = await readStore();
-  const schedule = store.schedule || defaultSchedule();
+  const schedule = store.schedule || defaultSchedule(ownerId);
   return String(schedule.id) === String(id) ? schedule : null;
 }
 
-export async function updateSchedule({ id, enabled, cronTime, languages, nextRunAt }) {
+export async function listEnabledSchedules() {
+  if (HAS_DATABASE) {
+    return sql`
+      SELECT *
+      FROM report_schedules
+      WHERE enabled = true
+        AND user_id IS NOT NULL
+      ORDER BY next_run_at ASC NULLS LAST, id ASC
+    `;
+  }
+
+  const store = await readStore();
+  return store.schedule?.enabled ? [store.schedule] : [];
+}
+
+export async function updateSchedule({ id, userId, enabled, cronTime, languages, nextRunAt }) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     const [updated] = await sql`
       UPDATE report_schedules
@@ -372,13 +457,14 @@ export async function updateSchedule({ id, enabled, cronTime, languages, nextRun
           languages = ${languages},
           next_run_at = ${nextRunAt}
       WHERE id = ${id}
+        AND user_id = ${ownerId}
       RETURNING *
     `;
     return updated;
   }
 
   return mutateStore((store) => {
-    if (!store.schedule) store.schedule = defaultSchedule();
+    if (!store.schedule) store.schedule = defaultSchedule(ownerId);
     store.schedule = {
       ...store.schedule,
       enabled,
@@ -390,18 +476,20 @@ export async function updateSchedule({ id, enabled, cronTime, languages, nextRun
   });
 }
 
-export async function markScheduleRan({ id, nextRunAt }) {
+export async function markScheduleRan({ id, userId, nextRunAt }) {
+  const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     await sql`
       UPDATE report_schedules
       SET last_run_at = NOW(), next_run_at = ${nextRunAt}
       WHERE id = ${id}
+        AND user_id = ${ownerId}
     `;
     return;
   }
 
   await mutateStore((store) => {
-    if (!store.schedule) store.schedule = defaultSchedule();
+    if (!store.schedule) store.schedule = defaultSchedule(ownerId);
     store.schedule.last_run_at = new Date().toISOString();
     store.schedule.next_run_at = nextRunAt;
   });

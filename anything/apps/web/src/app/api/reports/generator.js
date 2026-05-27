@@ -6,23 +6,26 @@ import {
   updateReportCompleted,
   updateReportFailed,
 } from "./store.js";
+import { getRuntimeConfig } from "../utils/app-config.js";
 
 export function normalizeLanguageFilter(language) {
   return language && language !== "all" ? language : null;
 }
 
 export async function generateReport({
+  userId,
   language,
   user = "trending-dashboard-scheduler",
   dateRange = "当日",
   allowMock = true,
 } = {}) {
   const languageFilter = normalizeLanguageFilter(language);
-  const difyUrl = process.env.DIFY_API_URL;
-  const difyKey = process.env.DIFY_API_KEY;
+  const runtime = await getRuntimeConfig();
+  const difyUrl = runtime.dify.baseUrl;
+  const difyKey = runtime.dify.appKey;
 
   if (difyUrl && difyKey) {
-    const pending = await createPendingReport(languageFilter);
+    const pending = await createPendingReport(userId, languageFilter);
     try {
       const { data, summary } = await runDifyWorkflow({
         difyUrl,
@@ -45,6 +48,6 @@ export async function generateReport({
   }
 
   const data = buildMockReport(languageFilter);
-  const row = await createCompletedReport(languageFilter, data.summary, data);
+  const row = await createCompletedReport(userId, languageFilter, data.summary, data);
   return { id: row.id, status: "completed" };
 }

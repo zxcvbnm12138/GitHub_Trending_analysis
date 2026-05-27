@@ -5,12 +5,13 @@ import {
   ensureSchedule,
   findReportForDate,
   getScheduleById,
+  listEnabledSchedules,
   markScheduleRan,
 } from "../reports/store.js";
-import sql from "../utils/sql.js";
+import sql, { hasDatabase } from "../utils/sql.js";
 import { computeNextRunAt, reportDateFromRunAt } from "./time.js";
 
-const HAS_DATABASE = Boolean(process.env.DATABASE_URL);
+const HAS_DATABASE = hasDatabase;
 const STORE_PATH = join(process.cwd(), ".data", "trending-dashboard.json");
 const JOB_KIND = "daily_report";
 
@@ -27,6 +28,7 @@ function defaultStore() {
 function normalizeJob(job) {
   return {
     id: job.id,
+    user_id: job.user_id ?? null,
     kind: job.kind || JOB_KIND,
     schedule_id: job.schedule_id ?? job.scheduleId,
     run_at: job.run_at,
@@ -70,6 +72,7 @@ async function mutateStore(mutator) {
 function buildPayload(schedule) {
   return {
     schedule_id: schedule.id,
+    user_id: schedule.user_id ?? null,
     cron_time: schedule.cron_time,
     languages:
       Array.isArray(schedule.languages) && schedule.languages.length
@@ -84,6 +87,7 @@ export async function ensureQueueSchema() {
   await sql`
     CREATE TABLE IF NOT EXISTS report_generation_jobs (
       id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT,
       kind TEXT NOT NULL DEFAULT 'daily_report',
       schedule_id BIGINT NOT NULL,
       run_at TIMESTAMPTZ NOT NULL,
@@ -100,6 +104,8 @@ export async function ensureQueueSchema() {
     )
   `;
 
+  await sql`ALTER TABLE report_generation_jobs ADD COLUMN IF NOT EXISTS user_id BIGINT`;
+
   await sql`
     CREATE INDEX IF NOT EXISTS report_generation_jobs_due_idx
     ON report_generation_jobs (status, run_at)
@@ -108,6 +114,11 @@ export async function ensureQueueSchema() {
   await sql`
     CREATE INDEX IF NOT EXISTS report_generation_jobs_schedule_idx
     ON report_generation_jobs (schedule_id, status)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS report_generation_jobs_user_idx
+    ON report_generation_jobs (user_id, status, run_at)
   `;
 }
 
@@ -124,6 +135,7 @@ export async function syncScheduleJob(schedule) {
             updated_at = NOW()
         WHERE kind = ${JOB_KIND}
           AND schedule_id = ${schedule.id}
+          AND user_id IS NOT DISTINCT FROM ${schedule.user_id ?? null}
           AND status = 'scheduled'
       `;
       return null;
@@ -139,6 +151,7 @@ export async function syncScheduleJob(schedule) {
         FROM report_generation_jobs
         WHERE kind = ${JOB_KIND}
           AND schedule_id = ${schedule.id}
+          AND user_id IS NOT DISTINCT FROM ${schedule.user_id ?? null}
           AND status = 'scheduled'
         ORDER BY run_at ASC, id ASC
         LIMIT 1
@@ -149,8 +162,9 @@ export async function syncScheduleJob(schedule) {
     if (updated) return updated;
 
     const [row] = await sql`
-      INSERT INTO report_generation_jobs (kind, schedule_id, run_at, status, payload)
+      INSERT INTO report_generation_jobs (user_id, kind, schedule_id, run_at, status, payload)
       VALUES (
+        ${schedule.user_id ?? null},
         ${JOB_KIND},
         ${schedule.id},
         ${schedule.next_run_at},
@@ -170,6 +184,7 @@ export async function syncScheduleJob(schedule) {
       store.jobs = jobs.map((job) =>
         job.kind === JOB_KIND &&
         String(job.schedule_id) === String(schedule.id) &&
+        String(job.user_id ?? "") === String(schedule.user_id ?? "") &&
         job.status === "scheduled"
           ? { ...job, status: "cancelled", updated_at: now }
           : job,
@@ -181,6 +196,7 @@ export async function syncScheduleJob(schedule) {
       (job) =>
         job.kind === JOB_KIND &&
         String(job.schedule_id) === String(schedule.id) &&
+        String(job.user_id ?? "") === String(schedule.user_id ?? "") &&
         job.status === "scheduled",
     );
 
@@ -197,6 +213,7 @@ export async function syncScheduleJob(schedule) {
 
     const job = normalizeJob({
       id: store.nextJobId++,
+      user_id: schedule.user_id ?? null,
       schedule_id: schedule.id,
       run_at: schedule.next_run_at,
       payload: buildPayload(schedule),
@@ -209,11 +226,11 @@ export async function syncScheduleJob(schedule) {
 }
 
 export async function bootstrapScheduleJobs() {
-  const schedule = await ensureSchedule();
-  if (schedule?.enabled) {
+  const schedules = await listEnabledSchedules();
+  for (const schedule of schedules) {
     await syncScheduleJob(schedule);
   }
-  return schedule;
+  return schedules;
 }
 
 async function claimDueScheduleJobs({ limit = 5, workerId } = {}) {
@@ -354,7 +371,8 @@ function getJobPayload(job) {
 async function executeScheduleJob(job) {
   const payload = getJobPayload(job);
   const scheduleId = job.schedule_id ?? payload.schedule_id;
-  const schedule = await getScheduleById(scheduleId);
+  const userId = job.user_id ?? payload.user_id ?? null;
+  const schedule = await getScheduleById(scheduleId, userId);
 
   if (!schedule || !schedule.enabled) {
     await completeScheduleJob(job.id);
@@ -378,7 +396,7 @@ async function executeScheduleJob(job) {
 
   for (const language of languages) {
     const languageFilter = normalizeLanguageFilter(language);
-    const existing = await findReportForDate(languageFilter, reportDate);
+    const existing = await findReportForDate(userId, languageFilter, reportDate);
     if (existing) {
       skipped.push({
         language,
@@ -390,8 +408,9 @@ async function executeScheduleJob(job) {
     }
 
     const report = await generateReport({
+      userId,
       language,
-      user: `trending-dashboard-schedule-${schedule.id}`,
+      user: `trending-dashboard-user-${userId}-schedule-${schedule.id}`,
     });
     created.push(report.id);
   }
@@ -401,7 +420,7 @@ async function executeScheduleJob(job) {
     new Date(job.run_at),
   ).toISOString();
 
-  await markScheduleRan({ id: schedule.id, nextRunAt });
+  await markScheduleRan({ id: schedule.id, userId, nextRunAt });
   await syncScheduleJob({ ...schedule, next_run_at: nextRunAt });
   await completeScheduleJob(job.id);
 
