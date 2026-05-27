@@ -1,0 +1,78 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - link "趋势报告" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img [ref=e7]
+          - generic [ref=e10]: 趋势报告
+        - generic [ref=e11]:
+          - navigation [ref=e12]:
+            - link "仪表盘" [ref=e13] [cursor=pointer]:
+              - /url: /
+              - img [ref=e14]
+              - text: 仪表盘
+            - link "对比" [ref=e19] [cursor=pointer]:
+              - /url: /compare
+              - img [ref=e20]
+              - text: 对比
+            - link "计划" [ref=e27] [cursor=pointer]:
+              - /url: /schedule
+              - img [ref=e28]
+              - text: 计划
+          - generic [ref=e31]:
+            - img [ref=e32]
+            - group "语言" [ref=e36]:
+              - button "中文" [ref=e37] [cursor=pointer]
+              - button "EN" [ref=e38] [cursor=pointer]
+    - main [ref=e39]:
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - link "报告列表" [ref=e43] [cursor=pointer]:
+              - /url: /
+              - img [ref=e44]
+              - text: 报告列表
+            - generic [ref=e46]: /
+            - generic [ref=e47]: 2026年5月27日
+          - generic [ref=e48]:
+            - button "下载 HTML" [ref=e49] [cursor=pointer]:
+              - img [ref=e50]
+              - text: 下载 HTML
+            - button "打开幻灯片" [ref=e53] [cursor=pointer]:
+              - img [ref=e54]
+              - text: 打开幻灯片
+        - generic [ref=e60]:
+          - button "分析报告" [active] [ref=e61] [cursor=pointer]
+          - button "幻灯片" [ref=e62] [cursor=pointer]
+        - generic [ref=e92]:
+          - generic [ref=e93]:
+            - generic [ref=e94]:
+              - generic [ref=e95]:
+                - heading "整体总结" [level=2] [ref=e96]
+                - generic [ref=e97]: 全部语言
+              - paragraph [ref=e98]: GitHub Trending 日报分析 PPT
+            - generic [ref=e99]:
+              - heading "热门趋势仓库" [level=2] [ref=e100]
+              - paragraph [ref=e101]: 按关注度排序。
+              - generic [ref=e103]: 未返回任何仓库。
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - heading "语言分布" [level=2] [ref=e106]
+              - paragraph [ref=e107]: 热门活动的语言占比。
+              - generic [ref=e109]: 暂无数据。
+            - generic [ref=e110]:
+              - heading "关于此报告" [level=2] [ref=e111]:
+                - img [ref=e112]
+                - text: 关于此报告
+              - list [ref=e114]:
+                - listitem [ref=e115]:
+                  - generic [ref=e116]: "-"
+                  - text: 生成时间：5月27日 13:37
+                - listitem [ref=e117]:
+                  - generic [ref=e118]: "-"
+                  - text: 状态：已完成
+                - listitem [ref=e119]:
+                  - generic [ref=e120]: "-"
+                  - text: 筛选：全部语言
+  - region "Notifications alt+T"

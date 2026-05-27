@@ -1,0 +1,29 @@
+[    1053ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:4000/node_modules/.vite/deps/chunk-GSKIDCVT.js?v=1b234e38:21608
+[    1191ms] [ERROR] Failed to load resource: the server responded with a status of 405 (Method Not Allowed) @ http://localhost:4000/api/schedule/tick:0
+[    1241ms] [ERROR] ClientFetchError: Unexpected token '<', "
+<html>
+  <"... is not valid JSON. Read more at https://errors.authjs.dev#autherror
+    at fetchData (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=bf4ee6fb:37:20)
+    at async getSession (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=bf4ee6fb:190:10)
+    at async authConfig.fetchSession (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=bf4ee6fb:136:32) @ http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=bf4ee6fb:36
+[    1290ms] [ERROR] ClientFetchError: Unexpected token '<', "
+<html>
+  <"... is not valid JSON. Read more at https://errors.authjs.dev#autherror
+    at fetchData (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=bf4ee6fb:37:20)
+    at async getSession (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=bf4ee6fb:190:10)
+    at async authConfig.fetchSession (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=bf4ee6fb:136:32) @ http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=bf4ee6fb:36
+[   46463ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4000/@vite/client:974
+[   48769ms] [ERROR] WebSocket connection to 'ws://localhost:4000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:4000/@vite/client:1045
+[   52386ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:4000/node_modules/.vite/deps/chunk-GSKIDCVT.js?v=ccff355d:21608
+[   52456ms] [ERROR] ClientFetchError: Unexpected token '<', "
+<html>
+  <"... is not valid JSON. Read more at https://errors.authjs.dev#autherror
+    at fetchData (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=ccff355d:37:20)
+    at async getSession (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=ccff355d:190:10)
+    at async authConfig.fetchSession (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=ccff355d:136:32) @ http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=ccff355d:36
+[   52460ms] [ERROR] ClientFetchError: Unexpected token '<', "
+<html>
+  <"... is not valid JSON. Read more at https://errors.authjs.dev#autherror
+    at fetchData (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=ccff355d:37:20)
+    at async getSession (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=ccff355d:190:10)
+    at async authConfig.fetchSession (http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=ccff355d:136:32) @ http://localhost:4000/node_modules/.vite/deps/@auth_create_react.js?v=ccff355d:36

@@ -1,0 +1,186 @@
+import { createCompletedReport } from "@/app/api/reports/store";
+
+function buildMockReport(language) {
+  const lang = language && language !== "all" ? language : null;
+  const allRepos = [
+    {
+      name: "vercel/next.js",
+      description: "The React Framework for the Web.",
+      stars: 132450,
+      stars_today: 412,
+      language: "JavaScript",
+      why_trending: [
+        "New compiler preview released this week",
+        "Improved server actions and partial prerendering",
+        "Strong adoption among enterprise teams",
+      ],
+    },
+    {
+      name: "huggingface/transformers",
+      description:
+        "State-of-the-art Machine Learning for Pytorch, TensorFlow, and JAX.",
+      stars: 142100,
+      stars_today: 689,
+      language: "Python",
+      why_trending: [
+        "Support for the latest open-source LLMs",
+        "Faster inference pipeline rolled out",
+        "Active community contributions",
+      ],
+    },
+    {
+      name: "rust-lang/rust",
+      description:
+        "Empowering everyone to build reliable and efficient software.",
+      stars: 98230,
+      stars_today: 245,
+      language: "Rust",
+      why_trending: [
+        "Async traits stabilized",
+        "Improved compile times across benchmarks",
+        "Growing usage in systems programming",
+      ],
+    },
+    {
+      name: "microsoft/typescript",
+      description:
+        "TypeScript is a superset of JavaScript that compiles to clean output.",
+      stars: 102340,
+      stars_today: 198,
+      language: "TypeScript",
+      why_trending: [
+        "5.5 release candidate published",
+        "Better inference for tuple types",
+        "Tooling improvements for monorepos",
+      ],
+    },
+    {
+      name: "golang/go",
+      description: "The Go programming language.",
+      stars: 121200,
+      stars_today: 165,
+      language: "Go",
+      why_trending: [
+        "Range-over-func proposal accepted",
+        "Standard library performance gains",
+        "Growing use in cloud infrastructure",
+      ],
+    },
+    {
+      name: "facebook/react",
+      description: "The library for web and native user interfaces.",
+      stars: 228900,
+      stars_today: 305,
+      language: "JavaScript",
+      why_trending: [
+        "React 19 RC discussions",
+        "New use() hook examples surfacing",
+        "Server components patterns maturing",
+      ],
+    },
+    {
+      name: "openai/openai-python",
+      description: "The official Python library for the OpenAI API.",
+      stars: 21450,
+      stars_today: 220,
+      language: "Python",
+      why_trending: [
+        "New streaming helpers",
+        "Improved typed responses",
+        "Wide enterprise adoption",
+      ],
+    },
+  ];
+
+  const top = lang
+    ? allRepos.filter((r) => r.language.toLowerCase() === lang.toLowerCase())
+    : allRepos;
+
+  const top_repos = (top.length ? top : allRepos).slice(0, 6);
+
+  const language_breakdown = [
+    { language: "Python", percentage: 32 },
+    { language: "JavaScript", percentage: 24 },
+    { language: "TypeScript", percentage: 18 },
+    { language: "Rust", percentage: 12 },
+    { language: "Go", percentage: 9 },
+    { language: "Other", percentage: 5 },
+  ];
+
+  const summary = `A snapshot of today's GitHub trending repositories${
+    lang ? ` filtered to ${lang}` : ""
+  }. Activity is concentrated around developer tooling, AI/ML libraries, and language ecosystems. Several projects show momentum driven by recent releases and community contributions.`;
+
+  const slides = [
+    {
+      title: "GitHub Trending Report",
+      content_markdown: `**Date:** ${new Date().toLocaleDateString()}\n\n**Filter:** ${
+        lang || "All languages"
+      }\n\nA daily look at the repositories gaining the most attention on GitHub.`,
+    },
+    {
+      title: "Executive Summary",
+      content_markdown: summary,
+    },
+    {
+      title: "Top Repositories",
+      content_markdown: top_repos
+        .slice(0, 5)
+        .map(
+          (r, i) =>
+            `${i + 1}. **${r.name}** — ${r.description}\n   - ${r.stars.toLocaleString()} stars (+${r.stars_today} today)`,
+        )
+        .join("\n"),
+    },
+    ...top_repos.slice(0, 3).map((r) => ({
+      title: r.name,
+      content_markdown: `**${r.description}**\n\nLanguage: ${r.language}  |  Stars: ${r.stars.toLocaleString()}\n\n**Why it's trending**\n${r.why_trending.map((w) => `- ${w}`).join("\n")}`,
+    })),
+    {
+      title: "Language Breakdown",
+      content_markdown: language_breakdown
+        .map((l) => `- **${l.language}** — ${l.percentage}%`)
+        .join("\n"),
+    },
+    {
+      title: "Key Trends",
+      content_markdown: `- AI tooling continues to dominate Python trending\n- TypeScript adoption visible across frontend libraries\n- Rust and Go grow steadily in systems and infrastructure\n- Developer experience remains a major theme`,
+    },
+    {
+      title: "Thanks",
+      content_markdown: `Generated by your trending dashboard.\n\nNext report scheduled for tomorrow.`,
+    },
+  ];
+
+  return {
+    summary,
+    trends_overview: summary,
+    top_repos,
+    language_breakdown,
+    key_trends: [
+      "AI tooling continues to dominate Python trending",
+      "TypeScript adoption visible across frontend libraries",
+      "Rust and Go grow steadily in systems and infrastructure",
+      "Developer experience remains a major theme",
+    ],
+    slides,
+  };
+}
+
+export async function POST(request) {
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+
+  const language = body?.language || null;
+  const languageFilter = language && language !== "all" ? language : null;
+
+  const data = buildMockReport(languageFilter);
+
+  const row = await createCompletedReport(languageFilter, data.summary, data);
+
+  return Response.json({ id: row.id, status: "completed" });
+}
