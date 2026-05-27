@@ -4,6 +4,9 @@
 	"type": "module",
 	"scripts": {
 		"dev": "react-router dev",
+		"worker:schedule": "node scripts/schedule-worker.js",
+		"worker:schedule:once": "node scripts/schedule-worker.js --once",
+		"worker:schedule:bootstrap": "node scripts/schedule-worker.js --bootstrap",
 		"typecheck": "react-router typegen && tsc --noEmit"
 	},
 	"dependencies": {

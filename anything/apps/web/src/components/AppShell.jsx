@@ -54,15 +54,6 @@ export default function AppShell({ children }) {
     setPath(window.location.pathname);
   }, []);
 
-  // Poll schedule tick every 5 minutes while page is open
-  useEffect(() => {
-    fetch("/api/schedule/tick", { method: "POST" }).catch(() => {});
-    const id = setInterval(() => {
-      fetch("/api/schedule/tick", { method: "POST" }).catch(() => {});
-    }, 5 * 60 * 1000);
-    return () => clearInterval(id);
-  }, []);
-
   const NAV = [
     {
       to: "/",

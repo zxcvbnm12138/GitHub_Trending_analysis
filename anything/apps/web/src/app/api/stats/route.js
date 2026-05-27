@@ -1,4 +1,4 @@
-import { getStats } from "@/app/api/reports/store";
+import { getStats } from "../reports/store.js";
 
 export async function GET() {
   return Response.json(await getStats());

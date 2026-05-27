@@ -1,4 +1,4 @@
-import { listReports } from "@/app/api/reports/store";
+import { listReports } from "./store.js";
 
 export async function GET(request) {
   const url = new URL(request.url);

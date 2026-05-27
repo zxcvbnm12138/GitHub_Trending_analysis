@@ -1,4 +1,4 @@
-import { deleteReport, getReport } from "@/app/api/reports/store";
+import { deleteReport, getReport } from "../store.js";
 
 export async function GET(request, { params }) {
   const id = parseInt(params.id, 10);

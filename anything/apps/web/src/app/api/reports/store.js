@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import sql from "@/app/api/utils/sql";
+import sql from "../utils/sql.js";
 
 const HAS_DATABASE = Boolean(process.env.DATABASE_URL);
 const STORE_PATH = join(process.cwd(), ".data", "trending-dashboard.json");
@@ -12,6 +12,8 @@ function today() {
 function defaultStore() {
   return {
     nextReportId: 1,
+    nextJobId: 1,
+    jobs: [],
     reports: [],
     schedule: null,
   };
@@ -103,6 +105,35 @@ export async function createCompletedReport(languageFilter, summary, rawData) {
     store.reports.push(report);
     return { id };
   });
+}
+
+export async function findReportForDate(languageFilter, reportDate = today()) {
+  if (HAS_DATABASE) {
+    const [row] = await sql`
+      SELECT id, status, report_date, language_filter
+      FROM trending_reports
+      WHERE report_date = ${reportDate}
+        AND language_filter IS NOT DISTINCT FROM ${languageFilter}
+        AND status IN ('pending', 'completed')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    return row || null;
+  }
+
+  const store = await readStore();
+  return (
+    store.reports
+      .map(normalizeLocalReport)
+      .filter(
+        (report) =>
+          report.report_date === reportDate &&
+          report.language_filter === languageFilter &&
+          ["pending", "completed"].includes(report.status),
+      )
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] ||
+    null
+  );
 }
 
 export async function updateReportCompleted(id, summary, rawData) {
@@ -319,6 +350,17 @@ export async function getSchedule() {
     return row || null;
   }
   return ensureSchedule();
+}
+
+export async function getScheduleById(id) {
+  if (HAS_DATABASE) {
+    const [row] = await sql`SELECT * FROM report_schedules WHERE id = ${id}`;
+    return row || null;
+  }
+
+  const store = await readStore();
+  const schedule = store.schedule || defaultSchedule();
+  return String(schedule.id) === String(id) ? schedule : null;
 }
 
 export async function updateSchedule({ id, enabled, cronTime, languages, nextRunAt }) {

@@ -1,4 +1,4 @@
-import { getReport } from "@/app/api/reports/store";
+import { getReport } from "../../store.js";
 
 function escapeHtml(s) {
   return String(s ?? "")

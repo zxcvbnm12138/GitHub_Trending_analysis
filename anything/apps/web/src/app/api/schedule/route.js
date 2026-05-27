@@ -1,4 +1,6 @@
-import { ensureSchedule, updateSchedule } from "@/app/api/reports/store";
+import { ensureSchedule, updateSchedule } from "../reports/store.js";
+import { syncScheduleJob } from "./queue.js";
+import { computeNextRunAt } from "./time.js";
 
 export async function GET() {
   const row = await ensureSchedule();
@@ -17,14 +19,7 @@ export async function POST(request) {
       ? body.languages
       : row.languages;
 
-  // compute next_run_at from cron_time today; if past, tomorrow
-  const [hStr, mStr] = String(cronTime).split(":");
-  const h = parseInt(hStr, 10) || 9;
-  const m = parseInt(mStr, 10) || 0;
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(h, m, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
+  const next = computeNextRunAt(cronTime);
 
   const updated = await updateSchedule({
     id: row.id,
@@ -33,6 +28,7 @@ export async function POST(request) {
     languages,
     nextRunAt: next.toISOString(),
   });
+  await syncScheduleJob(updated);
 
   return Response.json({ schedule: updated });
 }

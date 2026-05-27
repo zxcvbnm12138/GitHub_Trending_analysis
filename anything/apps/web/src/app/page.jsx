@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ChevronLeft,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 import AppShell from "../components/AppShell";
 import {
@@ -93,10 +94,83 @@ export default function Dashboard() {
   const stats = statsQuery.data;
   const reports = reportsQuery.data || [];
   const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedReportIds, setSelectedReportIds] = useState(() => new Set());
 
   const filteredReports = selectedDate
     ? reports.filter((r) => r.created_at && r.created_at.slice(0, 10) === selectedDate)
     : reports;
+
+  const filteredReportIds = useMemo(
+    () => filteredReports.map((report) => report.id),
+    [filteredReports],
+  );
+  const selectedCount = selectedReportIds.size;
+  const allFilteredSelected =
+    filteredReportIds.length > 0 &&
+    filteredReportIds.every((id) => selectedReportIds.has(id));
+
+  useEffect(() => {
+    const validIds = new Set(reports.map((report) => report.id));
+    setSelectedReportIds((current) => {
+      const next = new Set([...current].filter((id) => validIds.has(id)));
+      const unchanged =
+        next.size === current.size && [...next].every((id) => current.has(id));
+      return unchanged ? current : next;
+    });
+  }, [reports]);
+
+  useEffect(() => {
+    setSelectedReportIds(new Set());
+  }, [selectedDate]);
+
+  const toggleReportSelection = (id) => {
+    setSelectedReportIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedReportIds((current) => {
+      const next = new Set(current);
+      if (allFilteredSelected) {
+        filteredReportIds.forEach((id) => next.delete(id));
+      } else {
+        filteredReportIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ids) => {
+      await Promise.all(
+        ids.map(async (id) => {
+          const r = await fetch(`/api/reports/${id}`, { method: "DELETE" });
+          if (!r.ok) throw new Error(`delete ${id}: ${r.status}`);
+        }),
+      );
+    },
+    onSuccess: () => {
+      setSelectedReportIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+
+  const handleDeleteSelected = () => {
+    if (selectedCount === 0 || deleteMutation.isPending) return;
+    const confirmed = window.confirm(
+      t("dashboard.delete.confirm", { n: selectedCount }),
+    );
+    if (!confirmed) return;
+    deleteMutation.mutate([...selectedReportIds]);
+  };
 
   const empty = !reportsQuery.isLoading && filteredReports.length === 0;
 
@@ -198,12 +272,40 @@ export default function Dashboard() {
 
         {/* 报告列表 */}
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {t("dashboard.list.title")}
+          <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {t("dashboard.list.title")}
+              </div>
+              {!empty && !reportsQuery.isLoading && (
+                <label className="inline-flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleSelectAllFiltered}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
+                  />
+                  {t("dashboard.list.select_all")}
+                </label>
+              )}
             </div>
-            <div className="text-xs font-medium text-gray-500 dark:text-gray-400">
-              {t("common.total", { n: filteredReports.length })}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={selectedCount === 0 || deleteMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/60 dark:bg-gray-900 dark:text-red-400 dark:hover:bg-red-950/30"
+              >
+                <Trash2 size={13} />
+                {deleteMutation.isPending
+                  ? t("dashboard.list.deleting")
+                  : selectedCount > 0
+                    ? t("dashboard.list.delete_selected", { n: selectedCount })
+                    : t("dashboard.list.delete")}
+              </button>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {t("common.total", { n: filteredReports.length })}
+              </div>
             </div>
           </div>
 
@@ -246,7 +348,14 @@ export default function Dashboard() {
           {!empty && !reportsQuery.isLoading && (
             <ul className="divide-y divide-gray-200 dark:divide-gray-800">
               {filteredReports.map((r) => (
-                <ReportRow key={r.id} report={r} t={t} locale={locale} />
+                <ReportRow
+                  key={r.id}
+                  report={r}
+                  t={t}
+                  locale={locale}
+                  selected={selectedReportIds.has(r.id)}
+                  onToggleSelected={() => toggleReportSelection(r.id)}
+                />
               ))}
             </ul>
           )}
@@ -355,7 +464,7 @@ function CalendarCard({ reports, locale, selectedDate, onSelectDate }) {
   );
 }
 
-function ReportRow({ report, t, locale }) {
+function ReportRow({ report, t, locale, selected, onToggleSelected }) {
   const topRepos = Array.isArray(report.top_repos)
     ? report.top_repos.slice(0, 3)
     : [];
@@ -363,10 +472,19 @@ function ReportRow({ report, t, locale }) {
   const langLabel =
     lang === "all" ? t("dashboard.row.all_languages") : t(`lang.${lang}`);
   return (
-    <li>
+    <li className="flex items-stretch">
+      <div className="flex w-12 shrink-0 items-center justify-center">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelected}
+          aria-label={t("dashboard.list.select_report", { id: report.id })}
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
+        />
+      </div>
       <a
         href={`/reports/${report.id}`}
-        className="block px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+        className="block flex-1 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
       >
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">

@@ -1,9 +1,9 @@
-import { runDifyWorkflow } from "@/app/api/reports/dify";
+import { runDifyWorkflow } from "../dify.js";
 import {
   createPendingReport,
   updateReportCompleted,
   updateReportFailed,
-} from "@/app/api/reports/store";
+} from "../store.js";
 
 async function completeReport({ reportId, difyUrl, difyKey, dateRange }) {
   try {
