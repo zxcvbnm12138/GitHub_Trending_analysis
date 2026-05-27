@@ -5,14 +5,17 @@ import {
   GitCompareArrows,
   Clock,
   Languages,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useLocale } from "../utils/i18n";
+import { useTheme } from "../hooks/useTheme";
 
 function LangSwitcher() {
   const { locale, setLocale, t } = useLocale();
   return (
     <div
-      className="inline-flex items-center gap-0.5 bg-white border border-gray-200 rounded-full p-0.5"
+      className="inline-flex items-center gap-0.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full p-0.5"
       role="group"
       aria-label={t("lang.switch")}
     >
@@ -21,8 +24,8 @@ function LangSwitcher() {
         onClick={() => setLocale("zh")}
         className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs transition-colors ${
           locale === "zh"
-            ? "bg-blue-50 text-blue-600 font-medium"
-            : "text-gray-500 hover:text-gray-900 font-normal"
+            ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
+            : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 font-normal"
         }`}
       >
         中文
@@ -32,8 +35,8 @@ function LangSwitcher() {
         onClick={() => setLocale("en")}
         className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs transition-colors ${
           locale === "en"
-            ? "bg-blue-50 text-blue-600 font-medium"
-            : "text-gray-500 hover:text-gray-900 font-normal"
+            ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
+            : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 font-normal"
         }`}
       >
         EN
@@ -44,20 +47,20 @@ function LangSwitcher() {
 
 export default function AppShell({ children }) {
   const { t } = useLocale();
+  const { dark, toggle } = useTheme();
   const [path, setPath] = useState("/");
 
   useEffect(() => {
     setPath(window.location.pathname);
   }, []);
 
-  // Fire scheduled tick once per session
+  // Poll schedule tick every 5 minutes while page is open
   useEffect(() => {
-    const KEY = "schedule-tick-last";
-    const last = sessionStorage.getItem(KEY);
-    if (!last) {
-      sessionStorage.setItem(KEY, String(Date.now()));
+    fetch("/api/schedule/tick", { method: "POST" }).catch(() => {});
+    const id = setInterval(() => {
       fetch("/api/schedule/tick", { method: "POST" }).catch(() => {});
-    }
+    }, 5 * 60 * 1000);
+    return () => clearInterval(id);
   }, []);
 
   const NAV = [
@@ -82,14 +85,14 @@ export default function AppShell({ children }) {
   ];
 
   return (
-    <div className="min-h-screen bg-white font-inter text-gray-900">
-      <header className="border-b border-gray-200 bg-white sticky top-0 z-30">
+    <div className="min-h-screen bg-white dark:bg-gray-950 font-inter text-gray-900 dark:text-gray-100 transition-colors">
+      <header className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 sticky top-0 z-30 transition-colors">
         <div className="max-w-[1200px] mx-auto px-6 h-14 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-gray-900 text-white flex items-center justify-center">
+            <div className="w-7 h-7 rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center">
               <Github size={16} />
             </div>
-            <span className="text-sm font-semibold text-gray-900 tracking-tight">
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
               {t("nav.brand")}
             </span>
           </a>
@@ -104,8 +107,8 @@ export default function AppShell({ children }) {
                     href={item.to}
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
                       active
-                        ? "bg-blue-50 text-blue-600 font-medium"
-                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-50 font-normal"
+                        ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
+                        : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 font-normal"
                     }`}
                   >
                     <Icon size={14} />
@@ -114,17 +117,25 @@ export default function AppShell({ children }) {
                 );
               })}
             </nav>
-            <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-gray-200">
-              <Languages size={14} className="text-gray-400" />
+            <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-gray-200 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={toggle}
+                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {dark ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+              <Languages size={14} className="text-gray-400 dark:text-gray-500" />
               <LangSwitcher />
             </div>
           </div>
         </div>
-        <div className="sm:hidden border-t border-gray-200 px-6 py-2 flex justify-end">
+        <div className="sm:hidden border-t border-gray-200 dark:border-gray-800 px-6 py-2 flex justify-end">
           <LangSwitcher />
         </div>
       </header>
-      <main className="max-w-[1200px] mx-auto px-6 py-8">{children}</main>
+      <main className="max-w-[1200px] mx-auto px-6 py-8 transition-colors">{children}</main>
     </div>
   );
 }
