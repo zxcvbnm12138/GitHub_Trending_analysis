@@ -5,7 +5,7 @@
 	"scripts": {
 		"build": "react-router build && node scripts/prepare-production-build.js",
 		"dev": "react-router dev",
-		"start": "node ./build/server/index.js",
+		"start": "node scripts/start-production.js",
 		"worker:schedule": "node scripts/schedule-worker.js",
 		"worker:schedule:once": "node scripts/schedule-worker.js --once",
 		"worker:schedule:bootstrap": "node scripts/schedule-worker.js --bootstrap",
