@@ -41,6 +41,9 @@ export default function AuthScreen({ authState }) {
 
   const isRegister = mode === "register";
   const isFirstAdmin = Boolean(authState?.allow_first_admin);
+  const databaseReady =
+    Boolean(authState?.database_configured) &&
+    authState?.database_available !== false;
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -104,8 +107,14 @@ export default function AuthScreen({ authState }) {
             </div>
 
             <section className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
-              {!authState?.database_configured && (
-                <Notice tone="error">{t("auth.database_required")}</Notice>
+              {!databaseReady && (
+                <Notice tone="error">
+                  {authState?.database_configured
+                    ? t("auth.database_unavailable", {
+                        message: authState?.message || t("common.unknown"),
+                      })
+                    : t("auth.database_required")}
+                </Notice>
               )}
 
               <div className="mb-5 flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-gray-800">
@@ -211,7 +220,7 @@ export default function AuthScreen({ authState }) {
                   </SecondaryButton>
                   <PrimaryButton
                     type="submit"
-                    disabled={!canSubmit || mutation.isPending || !authState?.database_configured}
+                    disabled={!canSubmit || mutation.isPending || !databaseReady}
                   >
                     {isRegister ? <UserPlus size={14} /> : <LogIn size={14} />}
                     {mutation.isPending

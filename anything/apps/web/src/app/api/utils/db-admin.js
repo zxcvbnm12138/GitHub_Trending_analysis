@@ -36,6 +36,7 @@ export const REQUIRED_TABLES = [
     name: "invite_codes",
     columns: [
       "id",
+      "code",
       "code_hash",
       "role",
       "max_uses",
@@ -310,6 +311,7 @@ export async function ensureDatabaseSchema(databaseUrl) {
   await sql`
     CREATE TABLE IF NOT EXISTS invite_codes (
       id BIGSERIAL PRIMARY KEY,
+      code TEXT,
       code_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'user',
       max_uses INTEGER NOT NULL DEFAULT 1,
@@ -320,6 +322,7 @@ export async function ensureDatabaseSchema(databaseUrl) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+  await sql`ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS code TEXT`;
   await sql`ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS code_hash TEXT`;
   await sql`ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`;
   await sql`ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS max_uses INTEGER NOT NULL DEFAULT 1`;

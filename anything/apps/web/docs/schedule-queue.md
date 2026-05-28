@@ -17,6 +17,13 @@ Build the web app before starting it:
 npm run build
 ```
 
+On an EC2 host managed by PM2, use the committed ecosystem file instead:
+
+```bash
+pm2 start ecosystem.config.cjs
+pm2 reload ecosystem.config.cjs --update-env
+```
+
 The web app saves schedule settings and enqueues the next `daily_report` job.
 The worker polls the queue, claims due jobs, generates reports, and enqueues the
 next run after completion.

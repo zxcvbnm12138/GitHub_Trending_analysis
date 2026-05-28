@@ -1,0 +1,13 @@
+.DS_Store
+
+**/node_modules/
+
+**/.env
+**/.env.local
+**/.env.production
+**/.env.production.local
+
+apps/web/.data/
+apps/web/.react-router/
+apps/web/build/
+apps/web/.codex-dev.*.log

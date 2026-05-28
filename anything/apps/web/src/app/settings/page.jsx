@@ -59,6 +59,8 @@ function SourceBadge({ source, t }) {
   );
 }
 
+const RESTART_COMMAND = "pm2 reload ecosystem.config.cjs --update-env";
+
 export default function SettingsPage() {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -217,6 +219,12 @@ export default function SettingsPage() {
               pending={checkMutation.isPending}
               checkingTarget={checkingTarget}
             />
+            <DeploymentRestartPanel
+              t={t}
+              onRecheck={() => checkMutation.mutate("database")}
+              pending={checkMutation.isPending}
+              checking={checkingTarget === "database"}
+            />
 
             <div className="grid grid-cols-1 gap-5">
               <section className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6">
@@ -345,12 +353,75 @@ export default function SettingsPage() {
   );
 }
 
+function DeploymentRestartPanel({ t, onRecheck, pending, checking }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyCommand = async () => {
+    try {
+      await navigator.clipboard?.writeText(RESTART_COMMAND);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <section className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-gray-100 dark:bg-gray-800 p-2 text-gray-700 dark:text-gray-300">
+              <Wrench size={18} />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                {t("settings.runtime.title")}
+              </h2>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {t("settings.runtime.desc")}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <SecondaryButton onClick={copyCommand}>
+              <Copy size={14} />
+              {copied ? t("common.copied") : t("settings.runtime.copy_reload")}
+            </SecondaryButton>
+            <PrimaryButton onClick={onRecheck} disabled={pending}>
+              {checking ? (
+                <RefreshCw size={14} className="animate-spin" />
+              ) : (
+                <Database size={14} />
+              )}
+              {t("settings.runtime.recheck_database")}
+            </PrimaryButton>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
+          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            {t("settings.runtime.command_label")}
+          </div>
+          <code className="mt-2 block overflow-x-auto whitespace-nowrap rounded-lg bg-gray-950 px-3 py-2 text-xs text-gray-100">
+            {RESTART_COMMAND}
+          </code>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {t("settings.runtime.command_hint")}
+          </p>
+        </div>
+
+        <Notice>{t("settings.runtime.safe_note")}</Notice>
+      </div>
+    </section>
+  );
+}
+
 function AdminManagementPanel({ t }) {
   const queryClient = useQueryClient();
   const [role, setRole] = useState("user");
   const [maxUses, setMaxUses] = useState(1);
   const [expiresDays, setExpiresDays] = useState(7);
-  const [generatedCode, setGeneratedCode] = useState("");
 
   const usersQuery = useQuery({
     queryKey: ["admin-users"],
@@ -388,7 +459,6 @@ function AdminManagementPanel({ t }) {
       return body;
     },
     onSuccess: (body) => {
-      setGeneratedCode(body.code || "");
       queryClient.invalidateQueries({ queryKey: ["admin-invites"] });
     },
   });
@@ -407,6 +477,22 @@ function AdminManagementPanel({ t }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       queryClient.invalidateQueries({ queryKey: ["auth-me"] });
+    },
+  });
+
+  const inviteStatusMutation = useMutation({
+    mutationFn: async ({ id, disabled }) => {
+      const response = await fetch(`/api/admin/invites/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body?.error || `invite ${response.status}`);
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-invites"] });
     },
   });
 
@@ -480,28 +566,6 @@ function AdminManagementPanel({ t }) {
                   : t("settings.invites.create_btn")}
               </PrimaryButton>
             </div>
-
-            {generatedCode && (
-              <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-900/60 dark:bg-green-950/30">
-                <div className="text-xs font-medium text-green-700 dark:text-green-300">
-                  {t("settings.invites.generated")}
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1 text-xs font-semibold text-gray-900 dark:bg-gray-900 dark:text-gray-100">
-                    {generatedCode}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={() => navigator.clipboard?.writeText(generatedCode)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-green-200 bg-white text-green-700 hover:bg-green-100 dark:border-green-900/60 dark:bg-gray-900 dark:text-green-300"
-                    title={t("common.copy")}
-                    aria-label={t("common.copy")}
-                  >
-                    <Copy size={14} />
-                  </button>
-                </div>
-              </div>
-            )}
 
             {createInviteMutation.error && (
               <div className="mt-3">
@@ -582,8 +646,33 @@ function AdminManagementPanel({ t }) {
                 {invites.map((invite) => (
                   <div
                     key={invite.id}
-                    className="grid grid-cols-2 gap-2 px-4 py-3 text-sm text-gray-600 dark:text-gray-300 md:grid-cols-4"
+                    className="grid grid-cols-2 gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-300 md:grid-cols-[minmax(180px,1.4fr)_0.55fr_0.55fr_1fr_0.65fr_0.75fr]"
                   >
+                    <div className="min-w-0">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {t("settings.invites.code")}
+                      </div>
+                      {invite.code ? (
+                        <div className="mt-1 flex items-center gap-2">
+                          <code className="min-w-0 flex-1 truncate rounded bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-900 dark:bg-gray-800 dark:text-gray-100">
+                            {invite.code}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => navigator.clipboard?.writeText(invite.code)}
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+                            title={t("common.copy")}
+                            aria-label={t("common.copy")}
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                          {t("settings.invites.code_unavailable")}
+                        </div>
+                      )}
+                    </div>
                     <div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
                         {t("settings.invites.role")}
@@ -612,6 +701,31 @@ function AdminManagementPanel({ t }) {
                           ? t("settings.invites.used_up")
                           : t("common.enabled")}
                     </div>
+                    <div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {t("settings.invites.action")}
+                      </div>
+                      <div className="mt-1">
+                        <SecondaryButton
+                          onClick={() =>
+                            inviteStatusMutation.mutate({
+                              id: invite.id,
+                              disabled: !invite.disabled,
+                            })
+                          }
+                          disabled={inviteStatusMutation.isPending}
+                        >
+                          {invite.disabled ? (
+                            <UserCheck size={14} />
+                          ) : (
+                            <UserX size={14} />
+                          )}
+                          {invite.disabled
+                            ? t("settings.invites.enable")
+                            : t("settings.invites.disable")}
+                        </SecondaryButton>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -620,6 +734,12 @@ function AdminManagementPanel({ t }) {
             {userStatusMutation.error && (
               <Notice tone="error">
                 {String(userStatusMutation.error.message || userStatusMutation.error)}
+              </Notice>
+            )}
+
+            {inviteStatusMutation.error && (
+              <Notice tone="error">
+                {String(inviteStatusMutation.error.message || inviteStatusMutation.error)}
               </Notice>
             )}
           </div>

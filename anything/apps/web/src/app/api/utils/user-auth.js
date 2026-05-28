@@ -17,6 +17,20 @@ const INVITE_PREFIX = "INV";
 
 let schemaPromise = null;
 
+function buildAuthUnavailable(payload, status = 503) {
+  return {
+    ok: false,
+    ...payload,
+    response: Response.json(payload, { status }),
+  };
+}
+
+function databaseErrorMessage(error) {
+  const code = error?.code ? `${error.code}: ` : "";
+  const message = String(error?.message || error || "Unknown database error.");
+  return `${code}${message}`;
+}
+
 function parseCookies(header) {
   const cookies = new Map();
   for (const part of String(header || "").split(";")) {
@@ -88,23 +102,32 @@ export function buildLogoutCookie(request) {
 
 export async function ensureAuthReady() {
   if (!hasDatabase) {
-    return {
-      ok: false,
-      response: Response.json(
-        {
-          error: "database_required",
-          message: "User login requires a configured PostgreSQL database.",
-          database_configured: false,
-        },
-        { status: 503 },
-      ),
-    };
+    return buildAuthUnavailable({
+      error: "database_required",
+      message: "User login requires a configured PostgreSQL database.",
+      database_configured: false,
+      database_available: false,
+    });
   }
 
   if (!schemaPromise) {
-    schemaPromise = ensureDatabaseSchema(getConfiguredDatabaseUrlSync());
+    schemaPromise = ensureDatabaseSchema(getConfiguredDatabaseUrlSync()).catch(
+      (error) => {
+        schemaPromise = null;
+        throw error;
+      },
+    );
   }
-  await schemaPromise;
+  try {
+    await schemaPromise;
+  } catch (error) {
+    return buildAuthUnavailable({
+      error: "database_unavailable",
+      message: `PostgreSQL is configured but cannot be reached. ${databaseErrorMessage(error)}`,
+      database_configured: true,
+      database_available: false,
+    });
+  }
   return { ok: true };
 }
 
@@ -180,7 +203,10 @@ export async function getAuthStatus(request) {
   const ready = await ensureAuthReady();
   if (!ready.ok) {
     return {
-      database_configured: false,
+      error: ready.error,
+      message: ready.message,
+      database_configured: Boolean(ready.database_configured),
+      database_available: false,
       authenticated: false,
       user: null,
       allow_first_admin: false,
@@ -258,7 +284,7 @@ export async function deleteCurrentSession(request) {
 
 export async function loginUser({ email, password }) {
   const ready = await ensureAuthReady();
-  if (!ready.ok) throw new Error("Database is not configured.");
+  if (!ready.ok) throw new Error(ready.message || "Database is not ready.");
 
   const normalizedEmail = normalizeEmail(email);
   const [row] = await sql`
@@ -297,7 +323,7 @@ async function assignLegacyData(client, userId) {
 
 export async function registerUser({ email, password, inviteCode }) {
   const ready = await ensureAuthReady();
-  if (!ready.ok) throw new Error("Database is not configured.");
+  if (!ready.ok) throw new Error(ready.message || "Database is not ready.");
 
   const normalizedEmail = normalizeEmail(email);
   const passwordRecord = await hashPassword(password);
@@ -379,6 +405,7 @@ export async function listInviteCodes() {
   const rows = await sql`
     SELECT
       invites.id,
+      invites.code,
       invites.role,
       invites.max_uses,
       invites.used_count,
@@ -406,22 +433,34 @@ export async function createInviteCode({
   const code = generateInviteCode();
   const [row] = await sql`
     INSERT INTO invite_codes (
-      code_hash, role, max_uses, expires_at, created_by
+      code, code_hash, role, max_uses, expires_at, created_by
     )
     VALUES (
+      ${code},
       ${hashInviteCode(code)},
       ${normalizeRole(role)},
       ${Math.max(1, Math.min(Number(maxUses) || 1, 100))},
       ${expiresAt || null},
       ${createdBy}
     )
-    RETURNING id, role, max_uses, used_count, expires_at, disabled, created_at
+    RETURNING id, code, role, max_uses, used_count, expires_at, disabled, created_at
   `;
 
   return {
     invite: { ...row, id: String(row.id) },
     code,
   };
+}
+
+export async function setInviteCodeDisabled({ id, disabled }) {
+  const [row] = await sql`
+    UPDATE invite_codes
+    SET disabled = ${Boolean(disabled)}
+    WHERE id = ${id}
+    RETURNING id, code, role, max_uses, used_count, expires_at, disabled, created_at
+  `;
+
+  return row ? { ...row, id: String(row.id) } : null;
 }
 
 export async function listUsers() {

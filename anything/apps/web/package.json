@@ -4,6 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "react-router build && node scripts/prepare-production-build.js",
+		"db:local:start": "node scripts/local-postgres.js",
 		"dev": "react-router dev",
 		"start": "node scripts/start-production.js",
 		"worker:schedule": "node scripts/schedule-worker.js",
@@ -89,6 +90,7 @@
 		"@types/ws": "^8.18.1",
 		"autoprefixer": "^10.4.21",
 		"babel-plugin-react-require": "^4.0.3",
+		"embedded-postgres": "^18.3.0-beta.17",
 		"fast-glob": "^3.3.3",
 		"jsdom": "^26.1.0",
 		"micromatch": "^4.0.8",
