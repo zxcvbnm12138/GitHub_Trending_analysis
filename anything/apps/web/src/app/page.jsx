@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   AlertCircle,
   Trash2,
+  History,
+  X,
 } from "lucide-react";
 import AppShell from "../components/AppShell";
 import { fetchAuthStatus } from "../utils/auth-client";
@@ -41,6 +43,7 @@ export default function Dashboard() {
   const { t, locale } = useLocale();
   const [dateRange, setDateRange] = useState("当日");
   const [error, setError] = useState(null);
+  const [logsOpen, setLogsOpen] = useState(false);
   const queryClient = useQueryClient();
   const authQuery = useQuery({
     queryKey: ["auth-me"],
@@ -72,6 +75,17 @@ export default function Dashboard() {
       const rows = query.state.data || [];
       return rows.some((report) => report.status === "pending") ? 5000 : false;
     },
+  });
+
+  const logsQuery = useQuery({
+    queryKey: ["generation-logs"],
+    queryFn: async () => {
+      const r = await fetch("/api/reports/generation-logs");
+      if (!r.ok) throw new Error(`logs ${r.status}`);
+      const j = await r.json();
+      return j.logs || { reports: [], jobs: [] };
+    },
+    enabled: authenticated && logsOpen,
   });
 
   const generateMutation = useMutation({
@@ -216,6 +230,13 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => setLogsOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:focus-visible:ring-offset-gray-900"
+            >
+              <History size={14} /> {t("dashboard.btn.logs")}
+            </button>
             <PrimaryButton
               onClick={() => generateMutation.mutate({ mode: "dify" })}
               disabled={generateMutation.isPending}
@@ -369,6 +390,16 @@ export default function Dashboard() {
             </ul>
           )}
         </div>
+
+        {logsOpen && (
+          <GenerationLogsModal
+            logs={logsQuery.data}
+            loading={logsQuery.isLoading}
+            t={t}
+            locale={locale}
+            onClose={() => setLogsOpen(false)}
+          />
+        )}
       </div>
     </AppShell>
   );
@@ -524,5 +555,136 @@ function ReportRow({ report, t, locale, selected, onToggleSelected }) {
         </div>
       </a>
     </li>
+  );
+}
+
+function GenerationLogsModal({ logs, loading, t, locale, onClose }) {
+  const reports = logs?.reports || [];
+  const jobs = logs?.jobs || [];
+  const hasRows = reports.length > 0 || jobs.length > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+      <div className="w-full max-w-4xl max-h-[86vh] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {t("dashboard.logs.title")}
+            </h2>
+            <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+              {t("dashboard.logs.subtitle")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("dashboard.logs.close")}
+            className="rounded-md p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="max-h-[70vh] overflow-auto p-5">
+          {loading && (
+            <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+              {t("common.loading")}
+            </div>
+          )}
+
+          {!loading && !hasRows && (
+            <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+              {t("dashboard.logs.empty")}
+            </div>
+          )}
+
+          {!loading && hasRows && (
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <LogSection title={t("dashboard.logs.reports")}>
+                {reports.map((item) => (
+                  <li
+                    key={`report-${item.id}`}
+                    className="rounded-lg border border-gray-200 p-3 dark:border-gray-800"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {t("dashboard.logs.report_item", {
+                          id: item.id,
+                          time: formatDateTime(item.generated_at, locale),
+                          status: t(`status.${item.status}`),
+                        })}
+                      </div>
+                      <StatusPill status={item.status} />
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {t("dashboard.logs.languages", {
+                        languages: item.language || "all",
+                      })}
+                    </div>
+                    {item.error_message && (
+                      <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {item.error_message}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </LogSection>
+
+              <LogSection title={t("dashboard.logs.jobs")}>
+                {jobs.map((item) => (
+                  <li
+                    key={`job-${item.id}`}
+                    className="rounded-lg border border-gray-200 p-3 dark:border-gray-800"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {t("dashboard.logs.job_item", {
+                          time: formatDateTime(item.run_at, locale),
+                          status: t(`status.${item.status}`),
+                        })}
+                      </div>
+                      <StatusPill status={item.status} />
+                    </div>
+                    {item.generated_at && (
+                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {t("dashboard.logs.completed_at", {
+                          time: formatDateTime(item.generated_at, locale),
+                        })}
+                      </div>
+                    )}
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {t("dashboard.logs.languages", {
+                        languages: (item.languages || ["all"]).join(", "),
+                      })}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {t("dashboard.logs.timezone", {
+                        timezone: item.timezone || "Asia/Shanghai",
+                      })}
+                    </div>
+                    {item.error_message && (
+                      <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {item.error_message}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </LogSection>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogSection({ title, children }) {
+  return (
+    <section>
+      <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
+        {title}
+      </h3>
+      <ul className="space-y-2">{children}</ul>
+    </section>
   );
 }

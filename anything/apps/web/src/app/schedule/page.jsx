@@ -6,11 +6,39 @@ import { PrimaryButton } from "../../components/Pills";
 import { fetchAuthStatus } from "../../utils/auth-client";
 import { useLocale, formatDateTime } from "../../utils/i18n";
 
+const DEFAULT_CRON_TIMES = ["09:00", "14:00", "22:00"];
+const DEFAULT_TIMEZONE = "Asia/Shanghai";
+const TIMEZONE_OPTIONS = [
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Asia/Singapore",
+  "UTC",
+  "Europe/Amsterdam",
+  "Europe/London",
+  "America/New_York",
+  "America/Los_Angeles",
+];
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+
+function normalizeTimes(value) {
+  const source = Array.isArray(value) && value.length ? value : DEFAULT_CRON_TIMES;
+  return [...source, ...DEFAULT_CRON_TIMES]
+    .slice(0, 3)
+    .map((time, index) => {
+      const [hour = "09", minute = "00"] = String(time).split(":");
+      const safeHour = HOURS.includes(hour) ? hour : DEFAULT_CRON_TIMES[index].slice(0, 2);
+      const safeMinute = MINUTES.includes(minute) ? minute : "00";
+      return `${safeHour}:${safeMinute}`;
+    });
+}
+
 export default function SchedulePage() {
   const { t, locale } = useLocale();
   const queryClient = useQueryClient();
   const [enabled, setEnabled] = useState(false);
-  const [cronTime, setCronTime] = useState("09:00");
+  const [cronTimes, setCronTimes] = useState(DEFAULT_CRON_TIMES);
+  const [timeZone, setTimeZone] = useState(DEFAULT_TIMEZONE);
   const [saved, setSaved] = useState(false);
   const authQuery = useQuery({
     queryKey: ["auth-me"],
@@ -18,6 +46,9 @@ export default function SchedulePage() {
     staleTime: 30000,
   });
   const authenticated = Boolean(authQuery.data?.authenticated);
+  const timezoneOptions = TIMEZONE_OPTIONS.includes(timeZone)
+    ? TIMEZONE_OPTIONS
+    : [timeZone, ...TIMEZONE_OPTIONS];
 
   const { data } = useQuery({
     queryKey: ["schedule"],
@@ -32,16 +63,30 @@ export default function SchedulePage() {
   useEffect(() => {
     if (data?.schedule) {
       setEnabled(!!data.schedule.enabled);
-      setCronTime(data.schedule.cron_time || "09:00");
+      setCronTimes(
+        normalizeTimes(data.schedule.cron_times || [data.schedule.cron_time]),
+      );
+      setTimeZone(data.schedule.timezone || DEFAULT_TIMEZONE);
     }
   }, [data]);
+
+  const updateCronTime = (index, nextTime) => {
+    setCronTimes((current) =>
+      current.map((time, i) => (i === index ? nextTime : time)),
+    );
+  };
 
   const mutation = useMutation({
     mutationFn: async () => {
       const r = await fetch("/api/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled, cron_time: cronTime, languages: ["all"] }),
+        body: JSON.stringify({
+          enabled,
+          cron_times: cronTimes,
+          timezone: timeZone,
+          languages: ["all"],
+        }),
       });
       if (!r.ok) throw new Error(`save ${r.status}`);
       return r.json();
@@ -91,21 +136,39 @@ export default function SchedulePage() {
             </button>
           </div>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               {t("schedule.form.time_label")}
             </label>
-            <div className="relative max-w-[200px]">
-              <Clock
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
-              />
-              <input
-                type="time"
-                value={cronTime}
-                onChange={(e) => setCronTime(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {cronTimes.map((time, index) => (
+                <TimeSelect
+                  key={index}
+                  label={t(`schedule.form.slot_${index + 1}`)}
+                  value={time}
+                  onChange={(nextTime) => updateCronTime(index, nextTime)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              {t("schedule.form.timezone_label")}
+            </label>
+            <select
+              value={timeZone}
+              onChange={(e) => setTimeZone(e.target.value)}
+              className="max-w-sm rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus-visible:ring-offset-gray-900"
+            >
+              {timezoneOptions.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              {t("schedule.form.timezone", { timezone: timeZone })}
             </div>
           </div>
 
@@ -153,10 +216,63 @@ export default function SchedulePage() {
                     : t("common.never"),
                 })}
               </li>
+              <li className="text-sm text-gray-600 dark:text-gray-400 py-0.5 flex gap-2">
+                <span className="text-gray-400">-</span>{" "}
+                {t("schedule.status.times", {
+                  times: normalizeTimes(data.schedule.cron_times).join(", "),
+                })}
+              </li>
+              <li className="text-sm text-gray-600 dark:text-gray-400 py-0.5 flex gap-2">
+                <span className="text-gray-400">-</span>{" "}
+                {t("schedule.status.timezone", {
+                  timezone: data.schedule.timezone || timeZone,
+                })}
+              </li>
             </ul>
           </div>
         )}
       </div>
     </AppShell>
+  );
+}
+
+function TimeSelect({ label, value, onChange }) {
+  const [hour, minute] = value.split(":");
+  const setPart = (nextHour, nextMinute) => {
+    onChange(`${nextHour}:${nextMinute}`);
+  };
+
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 bg-gray-50 dark:bg-gray-950/40">
+      <div className="flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+        <Clock size={14} className="text-gray-400 dark:text-gray-500" />
+        {label}
+      </div>
+      <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <select
+          value={hour}
+          onChange={(e) => setPart(e.target.value, minute)}
+          className="rounded-md border border-gray-200 bg-white px-2 py-2 text-sm font-medium text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+        >
+          {HOURS.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <span className="text-sm font-semibold text-gray-400">:</span>
+        <select
+          value={minute}
+          onChange={(e) => setPart(hour, e.target.value)}
+          className="rounded-md border border-gray-200 bg-white px-2 py-2 text-sm font-medium text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+        >
+          {MINUTES.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
   );
 }

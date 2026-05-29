@@ -1,11 +1,16 @@
-import { generateReport, normalizeLanguageFilter } from "../../reports/generator.js";
+import { generateReport } from "../../reports/generator.js";
 import {
-  findReportForDate,
   listEnabledSchedules,
   markScheduleRan,
 } from "../../reports/store.js";
 import { syncScheduleJob } from "../queue.js";
-import { computeNextRunAt } from "../time.js";
+import {
+  DEFAULT_CRON_TIMES,
+  computeNextRunAt,
+  normalizeCronTimes,
+  normalizeScheduleTimeZone,
+  reportDateFromRunAt,
+} from "../time.js";
 import { getRuntimeConfig } from "../../utils/app-config.js";
 
 function isAuthorized(request) {
@@ -61,40 +66,22 @@ async function handleTick(request) {
       Array.isArray(schedule.languages) && schedule.languages.length
         ? schedule.languages
         : ["all"];
+    const timezone = normalizeScheduleTimeZone(schedule.timezone);
+    const cronTimes = normalizeCronTimes(schedule.cron_times || schedule.cron_time);
+    const reportDate = schedule.next_run_at
+      ? reportDateFromRunAt(schedule.next_run_at, timezone)
+      : undefined;
 
     const scheduleCreated = [];
-    const scheduleSkipped = [];
 
     for (const lang of languages) {
-      const languageFilter = normalizeLanguageFilter(lang);
-      if (!force && schedule.next_run_at) {
-        const dueDate = new Date(schedule.next_run_at).toISOString().slice(0, 10);
-        const existing = await findReportForDate(
-          schedule.user_id,
-          languageFilter,
-          dueDate,
-        );
-        if (existing) {
-          const item = {
-            schedule_id: schedule.id,
-            user_id: schedule.user_id,
-            language: lang,
-            id: existing.id,
-            status: existing.status,
-            reason: "already generated for scheduled date",
-          };
-          skipped.push(item);
-          scheduleSkipped.push(item);
-          continue;
-        }
-      }
-
       try {
         const report = await generateReport({
           userId: schedule.user_id,
           language: lang,
           user: `trending-dashboard-user-${schedule.user_id}-scheduler`,
           allowMock: !useDify,
+          reportDate,
         });
         const item = {
           schedule_id: schedule.id,
@@ -116,10 +103,9 @@ async function handleTick(request) {
       }
     }
 
-    const shouldAdvanceSchedule =
-      scheduleCreated.length > 0 || scheduleSkipped.length > 0;
+    const shouldAdvanceSchedule = scheduleCreated.length > 0;
     const next = shouldAdvanceSchedule
-      ? computeNextRunAt(schedule.cron_time || "09:00")
+      ? computeNextRunAt(cronTimes || DEFAULT_CRON_TIMES, new Date(), timezone)
       : null;
 
     if (next) {

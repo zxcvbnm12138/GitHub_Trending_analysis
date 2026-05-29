@@ -1,15 +1,20 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { generateReport, normalizeLanguageFilter } from "../reports/generator.js";
+import { generateReport } from "../reports/generator.js";
 import {
   ensureSchedule,
-  findReportForDate,
   getScheduleById,
   listEnabledSchedules,
   markScheduleRan,
 } from "../reports/store.js";
 import sql, { hasDatabase } from "../utils/sql.js";
-import { computeNextRunAt, reportDateFromRunAt } from "./time.js";
+import {
+  DEFAULT_CRON_TIMES,
+  computeNextRunAt,
+  normalizeCronTimes,
+  normalizeScheduleTimeZone,
+  reportDateFromRunAt,
+} from "./time.js";
 
 const HAS_DATABASE = hasDatabase;
 const STORE_PATH = join(process.cwd(), ".data", "trending-dashboard.json");
@@ -70,10 +75,13 @@ async function mutateStore(mutator) {
 }
 
 function buildPayload(schedule) {
+  const cronTimes = normalizeCronTimes(schedule.cron_times || schedule.cron_time);
   return {
     schedule_id: schedule.id,
     user_id: schedule.user_id ?? null,
-    cron_time: schedule.cron_time,
+    cron_time: cronTimes[0],
+    cron_times: cronTimes,
+    timezone: normalizeScheduleTimeZone(schedule.timezone),
     languages:
       Array.isArray(schedule.languages) && schedule.languages.length
         ? schedule.languages
@@ -390,41 +398,35 @@ async function executeScheduleJob(job) {
         ? payload.languages
         : ["all"];
 
-  const reportDate = reportDateFromRunAt(job.run_at);
+  const timezone = normalizeScheduleTimeZone(schedule.timezone || payload.timezone);
+  const reportDate = reportDateFromRunAt(job.run_at, timezone);
   const created = [];
-  const skipped = [];
 
   for (const language of languages) {
-    const languageFilter = normalizeLanguageFilter(language);
-    const existing = await findReportForDate(userId, languageFilter, reportDate);
-    if (existing) {
-      skipped.push({
-        language,
-        id: existing.id,
-        status: existing.status,
-        reason: "already generated for scheduled date",
-      });
-      continue;
-    }
-
     const report = await generateReport({
       userId,
       language,
       user: `trending-dashboard-user-${userId}-schedule-${schedule.id}`,
+      reportDate,
     });
     created.push(report.id);
   }
 
   const nextRunAt = computeNextRunAt(
-    schedule.cron_time || payload.cron_time || "09:00",
+    schedule.cron_times ||
+      payload.cron_times ||
+      schedule.cron_time ||
+      payload.cron_time ||
+      DEFAULT_CRON_TIMES,
     new Date(job.run_at),
+    timezone,
   ).toISOString();
 
   await markScheduleRan({ id: schedule.id, userId, nextRunAt });
   await syncScheduleJob({ ...schedule, next_run_at: nextRunAt });
   await completeScheduleJob(job.id);
 
-  return { id: job.id, created, skipped, next_run_at: nextRunAt };
+  return { id: job.id, created, next_run_at: nextRunAt };
 }
 
 export async function runDueScheduleJobsOnce({

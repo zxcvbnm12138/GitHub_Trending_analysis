@@ -1,5 +1,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import {
+  DEFAULT_CRON_TIMES,
+  DEFAULT_SCHEDULE_TIMEZONE,
+  computeNextRunAt,
+  normalizeCronTimes,
+  normalizeScheduleTimeZone,
+} from "../schedule/time.js";
 import sql, { hasDatabase } from "../utils/sql.js";
 
 const HAS_DATABASE = hasDatabase;
@@ -37,6 +44,15 @@ function normalizeUserId(userId) {
   return userId == null ? null : String(userId);
 }
 
+function scheduleCronTimes(schedule) {
+  return normalizeCronTimes(
+    Array.isArray(schedule?.cron_times) && schedule.cron_times.length
+      ? schedule.cron_times
+      : schedule?.cron_time,
+    DEFAULT_CRON_TIMES,
+  );
+}
+
 async function readStore() {
   try {
     const content = await readFile(STORE_PATH, "utf8");
@@ -59,12 +75,12 @@ async function mutateStore(mutator) {
   return result;
 }
 
-export async function createPendingReport(userId, languageFilter) {
+export async function createPendingReport(userId, languageFilter, reportDate = today()) {
   const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     const [row] = await sql`
-      INSERT INTO trending_reports (user_id, language_filter, status)
-      VALUES (${ownerId}, ${languageFilter}, 'pending')
+      INSERT INTO trending_reports (user_id, report_date, language_filter, status)
+      VALUES (${ownerId}, ${reportDate}, ${languageFilter}, 'pending')
       RETURNING id
     `;
     return row;
@@ -77,7 +93,7 @@ export async function createPendingReport(userId, languageFilter) {
       id,
       user_id: ownerId,
       created_at: now,
-      report_date: today(),
+      report_date: reportDate,
       language_filter: languageFilter,
       status: "pending",
       raw_data: {},
@@ -87,12 +103,18 @@ export async function createPendingReport(userId, languageFilter) {
   });
 }
 
-export async function createCompletedReport(userId, languageFilter, summary, rawData) {
+export async function createCompletedReport(
+  userId,
+  languageFilter,
+  summary,
+  rawData,
+  reportDate = today(),
+) {
   const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
     const [row] = await sql`
-      INSERT INTO trending_reports (user_id, language_filter, status, summary, raw_data)
-      VALUES (${ownerId}, ${languageFilter}, 'completed', ${summary}, ${JSON.stringify(rawData)}::jsonb)
+      INSERT INTO trending_reports (user_id, report_date, language_filter, status, summary, raw_data)
+      VALUES (${ownerId}, ${reportDate}, ${languageFilter}, 'completed', ${summary}, ${JSON.stringify(rawData)}::jsonb)
       RETURNING id
     `;
     return row;
@@ -105,7 +127,7 @@ export async function createCompletedReport(userId, languageFilter, summary, raw
       id,
       user_id: ownerId,
       created_at: now,
-      report_date: today(),
+      report_date: reportDate,
       language_filter: languageFilter,
       status: "completed",
       summary,
@@ -236,6 +258,124 @@ export async function listReports({ userId, language, limit = 100 } = {}) {
     }));
 }
 
+function parsePayload(value) {
+  if (!value) return {};
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return value;
+}
+
+function normalizeLogLanguage(value) {
+  if (!value || value === "all") return "all";
+  return value;
+}
+
+export async function listGenerationLogs({ userId, limit = 100 } = {}) {
+  const ownerId = normalizeUserId(userId);
+  const rowLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
+
+  if (HAS_DATABASE) {
+    const reportRows = await sql`
+      SELECT id, created_at, report_date, language_filter, status, error_message,
+             raw_data ? 'html_ppt' AS has_html_ppt
+      FROM trending_reports
+      WHERE user_id = ${ownerId}
+      ORDER BY created_at DESC
+      LIMIT ${rowLimit}
+    `;
+
+    const jobRows = await sql`
+      SELECT id, schedule_id, run_at, status, payload, attempts, last_error,
+             created_at, completed_at
+      FROM report_generation_jobs
+      WHERE user_id = ${ownerId}
+      ORDER BY COALESCE(completed_at, run_at, created_at) DESC, id DESC
+      LIMIT ${rowLimit}
+    `;
+
+    return {
+      reports: reportRows.map((row) => ({
+        type: "report",
+        id: String(row.id),
+        generated_at: row.created_at,
+        report_date: row.report_date,
+        language: normalizeLogLanguage(row.language_filter),
+        status: row.status,
+        error_message: row.error_message || null,
+        has_html_ppt: Boolean(row.has_html_ppt),
+      })),
+      jobs: jobRows.map((row) => {
+        const payload = parsePayload(row.payload);
+        return {
+          type: "scheduled_job",
+          id: String(row.id),
+          schedule_id: row.schedule_id ? String(row.schedule_id) : null,
+          run_at: row.run_at,
+          generated_at: row.completed_at || null,
+          created_at: row.created_at,
+          status: row.status,
+          attempts: Number(row.attempts) || 0,
+          error_message: row.last_error || null,
+          languages: Array.isArray(payload.languages) ? payload.languages : ["all"],
+          cron_times: normalizeCronTimes(payload.cron_times || payload.cron_time),
+          timezone: payload.timezone || DEFAULT_SCHEDULE_TIMEZONE,
+        };
+      }),
+    };
+  }
+
+  const store = await readStore();
+  const reports = store.reports
+    .map(normalizeLocalReport)
+    .filter((report) => String(report.user_id ?? "") === String(ownerId ?? ""))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, rowLimit)
+    .map((report) => ({
+      type: "report",
+      id: String(report.id),
+      generated_at: report.created_at,
+      report_date: report.report_date,
+      language: normalizeLogLanguage(report.language_filter),
+      status: report.status,
+      error_message: report.error_message || null,
+      has_html_ppt: Boolean(report.raw_data?.html_ppt),
+    }));
+
+  const jobs = (Array.isArray(store.jobs) ? store.jobs : [])
+    .map((job) => ({ ...job, payload: parsePayload(job.payload) }))
+    .filter((job) => String(job.user_id ?? "") === String(ownerId ?? ""))
+    .sort(
+      (a, b) => {
+        const byTime =
+          new Date(b.completed_at || b.run_at || b.created_at) -
+          new Date(a.completed_at || a.run_at || a.created_at);
+        return byTime || Number(b.id || 0) - Number(a.id || 0);
+      },
+    )
+    .slice(0, rowLimit)
+    .map((job) => ({
+      type: "scheduled_job",
+      id: String(job.id),
+      schedule_id: job.schedule_id ? String(job.schedule_id) : null,
+      run_at: job.run_at,
+      generated_at: job.completed_at || null,
+      created_at: job.created_at,
+      status: job.status,
+      attempts: Number(job.attempts) || 0,
+      error_message: job.last_error || null,
+      languages: Array.isArray(job.payload.languages) ? job.payload.languages : ["all"],
+      cron_times: normalizeCronTimes(job.payload.cron_times || job.payload.cron_time),
+      timezone: job.payload.timezone || DEFAULT_SCHEDULE_TIMEZONE,
+    }));
+
+  return { reports, jobs };
+}
+
 export async function getReport(userId, id) {
   const ownerId = normalizeUserId(userId);
   if (HAS_DATABASE) {
@@ -353,18 +493,22 @@ function buildStats(totals, topLanguage, schedule) {
     top_language: topLanguage,
     next_run_at: schedule?.next_run_at || null,
     schedule_enabled: schedule?.enabled || false,
+    cron_times: schedule ? scheduleCronTimes(schedule) : DEFAULT_CRON_TIMES,
+    timezone: schedule?.timezone || DEFAULT_SCHEDULE_TIMEZONE,
   };
 }
 
 function defaultSchedule(userId) {
-  const next = new Date();
-  next.setDate(next.getDate() + 1);
-  next.setHours(9, 0, 0, 0);
+  const timezone = DEFAULT_SCHEDULE_TIMEZONE;
+  const cronTimes = DEFAULT_CRON_TIMES;
+  const next = computeNextRunAt(cronTimes, new Date(), timezone);
   return {
     id: 1,
     user_id: normalizeUserId(userId),
     enabled: false,
-    cron_time: "09:00",
+    cron_time: cronTimes[0],
+    cron_times: cronTimes,
+    timezone,
     languages: ["all"],
     last_run_at: null,
     next_run_at: next.toISOString(),
@@ -382,9 +526,12 @@ export async function ensureSchedule(userId) {
       LIMIT 1
     `;
     if (row) return row;
+    const timezone = DEFAULT_SCHEDULE_TIMEZONE;
+    const cronTimes = DEFAULT_CRON_TIMES;
+    const nextRunAt = computeNextRunAt(cronTimes, new Date(), timezone).toISOString();
     const [created] = await sql`
-      INSERT INTO report_schedules (user_id, enabled, cron_time, languages, next_run_at)
-      VALUES (${ownerId}, false, '09:00', ARRAY['all']::text[], NOW() + INTERVAL '1 day')
+      INSERT INTO report_schedules (user_id, enabled, cron_time, cron_times, timezone, languages, next_run_at)
+      VALUES (${ownerId}, false, ${cronTimes[0]}, ${cronTimes}, ${timezone}, ARRAY['all']::text[], ${nextRunAt})
       RETURNING *
     `;
     return created;
@@ -447,13 +594,27 @@ export async function listEnabledSchedules() {
   return store.schedule?.enabled ? [store.schedule] : [];
 }
 
-export async function updateSchedule({ id, userId, enabled, cronTime, languages, nextRunAt }) {
+export async function updateSchedule({
+  id,
+  userId,
+  enabled,
+  cronTime,
+  cronTimes,
+  timezone,
+  languages,
+  nextRunAt,
+}) {
   const ownerId = normalizeUserId(userId);
+  const scheduleTimezone = normalizeScheduleTimeZone(timezone);
+  const scheduleCronValues = normalizeCronTimes(cronTimes || cronTime);
+  const primaryCronTime = scheduleCronValues[0];
   if (HAS_DATABASE) {
     const [updated] = await sql`
       UPDATE report_schedules
       SET enabled = ${enabled},
-          cron_time = ${cronTime},
+          cron_time = ${primaryCronTime},
+          cron_times = ${scheduleCronValues},
+          timezone = ${scheduleTimezone},
           languages = ${languages},
           next_run_at = ${nextRunAt}
       WHERE id = ${id}
@@ -468,7 +629,9 @@ export async function updateSchedule({ id, userId, enabled, cronTime, languages,
     store.schedule = {
       ...store.schedule,
       enabled,
-      cron_time: cronTime,
+      cron_time: primaryCronTime,
+      cron_times: scheduleCronValues,
+      timezone: scheduleTimezone,
       languages,
       next_run_at: nextRunAt,
     };

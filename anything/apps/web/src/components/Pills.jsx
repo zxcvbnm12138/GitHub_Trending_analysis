@@ -33,6 +33,9 @@ export function SoftPill({
 const STATUS_DOT = {
   completed: "bg-green-500",
   pending: "bg-orange-500",
+  scheduled: "bg-blue-500",
+  running: "bg-orange-500",
+  cancelled: "bg-gray-400",
   failed: "bg-red-500",
 };
 

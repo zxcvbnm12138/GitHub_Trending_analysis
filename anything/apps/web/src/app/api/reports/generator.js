@@ -18,6 +18,7 @@ export async function generateReport({
   user = "trending-dashboard-scheduler",
   dateRange = "当日",
   allowMock = true,
+  reportDate,
 } = {}) {
   const languageFilter = normalizeLanguageFilter(language);
   const runtime = await getRuntimeConfig();
@@ -25,7 +26,7 @@ export async function generateReport({
   const difyKey = runtime.dify.appKey;
 
   if (difyUrl && difyKey) {
-    const pending = await createPendingReport(userId, languageFilter);
+    const pending = await createPendingReport(userId, languageFilter, reportDate);
     try {
       const { data, summary } = await runDifyWorkflow({
         difyUrl,
@@ -48,6 +49,12 @@ export async function generateReport({
   }
 
   const data = buildMockReport(languageFilter);
-  const row = await createCompletedReport(userId, languageFilter, data.summary, data);
+  const row = await createCompletedReport(
+    userId,
+    languageFilter,
+    data.summary,
+    data,
+    reportDate,
+  );
   return { id: row.id, status: "completed" };
 }

@@ -28,6 +28,13 @@ The web app saves schedule settings and enqueues the next `daily_report` job.
 The worker polls the queue, claims due jobs, generates reports, and enqueues the
 next run after completion.
 
+Schedules default to three daily runs at `09:00`, `14:00`, and `22:00` in
+`Asia/Shanghai`. The Schedule page also stores an explicit timezone, so those
+times run against the selected timezone even if the EC2 host runs in UTC or
+Europe/Amsterdam time. After upgrading an older deployment, run the database
+self-check, then open the Schedule page and save once so existing schedules
+store the timezone and three run times.
+
 ## Useful commands
 
 Create or refresh the queued job for the current schedule:

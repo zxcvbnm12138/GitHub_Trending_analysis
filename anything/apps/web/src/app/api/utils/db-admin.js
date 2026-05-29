@@ -74,6 +74,8 @@ export const REQUIRED_TABLES = [
       "user_id",
       "enabled",
       "cron_time",
+      "cron_times",
+      "timezone",
       "languages",
       "last_run_at",
       "next_run_at",
@@ -377,6 +379,8 @@ export async function ensureDatabaseSchema(databaseUrl) {
       user_id BIGINT,
       enabled BOOLEAN NOT NULL DEFAULT false,
       cron_time TEXT NOT NULL DEFAULT '09:00',
+      cron_times TEXT[] NOT NULL DEFAULT ARRAY['09:00','14:00','22:00']::text[],
+      timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
       languages TEXT[] NOT NULL DEFAULT ARRAY['all']::text[],
       last_run_at TIMESTAMPTZ,
       next_run_at TIMESTAMPTZ
@@ -386,6 +390,9 @@ export async function ensureDatabaseSchema(databaseUrl) {
   await sql`ALTER TABLE report_schedules ADD COLUMN IF NOT EXISTS user_id BIGINT`;
   await sql`ALTER TABLE report_schedules ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT false`;
   await sql`ALTER TABLE report_schedules ADD COLUMN IF NOT EXISTS cron_time TEXT NOT NULL DEFAULT '09:00'`;
+  await sql`ALTER TABLE report_schedules ADD COLUMN IF NOT EXISTS cron_times TEXT[] NOT NULL DEFAULT ARRAY['09:00','14:00','22:00']::text[]`;
+  await sql`ALTER TABLE report_schedules ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai'`;
+  await sql`ALTER TABLE report_schedules ALTER COLUMN timezone SET DEFAULT 'Asia/Shanghai'`;
   await sql`ALTER TABLE report_schedules ADD COLUMN IF NOT EXISTS languages TEXT[] NOT NULL DEFAULT ARRAY['all']::text[]`;
   await sql`ALTER TABLE report_schedules ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMPTZ`;
   await sql`ALTER TABLE report_schedules ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ`;
@@ -523,12 +530,14 @@ export async function migrateLocalStoreToDatabase(databaseUrl) {
     const schedule = store.schedule;
     const rows = await sql`
       INSERT INTO report_schedules (
-        id, enabled, cron_time, languages, last_run_at, next_run_at
+        id, enabled, cron_time, cron_times, timezone, languages, last_run_at, next_run_at
       )
       VALUES (
         ${Number(schedule.id) || 1},
         ${Boolean(schedule.enabled)},
         ${schedule.cron_time || "09:00"},
+        ${Array.isArray(schedule.cron_times) && schedule.cron_times.length ? schedule.cron_times : ["09:00", "14:00", "22:00"]},
+        ${schedule.timezone || "Asia/Shanghai"},
         ${Array.isArray(schedule.languages) && schedule.languages.length ? schedule.languages : ["all"]},
         ${schedule.last_run_at || null},
         ${schedule.next_run_at || null}

@@ -87,6 +87,11 @@ pm2 reload ecosystem.config.cjs --update-env
 
 After a reload, return to Settings and run the database self-check.
 
+If automatic reports were configured before this deployment, open the Schedule
+page and save once after the database self-check. Schedules now default to
+`09:00`, `14:00`, and `22:00` in `Asia/Shanghai`, and the selected timezone keeps
+run times correct on UTC or Amsterdam EC2 hosts.
+
 ## Manual release
 
 The agreed manual release flow is:
